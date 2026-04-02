@@ -10,7 +10,7 @@ ACCOUNT_KEY="$(az storage account keys list --resource-group "${RESOURCE_GROUP}"
 
 echo "Uploading static site files to ${STORAGE_ACCOUNT}..."
 
-for file in index.html board.html wiki.html search.html feedback.html styles.css app.js api-config.js analytics-config.js analytics-bootstrap.js; do
+for file in index.html board.html wiki.html mcp.html search.html feedback.html styles.css app.js api-config.js analytics-config.js analytics-bootstrap.js; do
   az storage blob upload \
     --account-name "${STORAGE_ACCOUNT}" \
     --account-key "${ACCOUNT_KEY}" \

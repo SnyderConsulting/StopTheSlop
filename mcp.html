@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stop The Slop | MCP Server</title>
+  <meta
+    name="description"
+    content="Connect AI agents directly to Stop The Slop through a remote MCP server for reading public knowledge and submitting new AI signals."
+  />
+  <script src="./analytics-config.js"></script>
+  <script src="./analytics-bootstrap.js?v=20260327a"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="./src/StopTheSlopLogo.png" />
+  <link rel="stylesheet" href="./styles.css?v=20260402g" />
+</head>
+<body data-page="mcp">
+  <div class="page-shell">
+    <div class="bg-grid"></div>
+
+    <header class="topbar">
+      <a class="brand" href="./index.html" aria-label="Stop The Slop home">
+        <img class="brand-logo" src="./src/StopTheSlopLogoHorizontal.png" alt="Stop The Slop" />
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="./index.html">Home</a>
+        <a href="./wiki.html">Wiki</a>
+        <a class="is-active" href="./mcp.html">MCP</a>
+        <a href="./feedback.html">Feedback</a>
+        <a href="https://discord.gg/6fYrFKpr" target="_blank" rel="noreferrer">Discord</a>
+        <a href="https://www.reddit.com/r/Stop_The_Slop/" target="_blank" rel="noreferrer">Reddit</a>
+      </nav>
+      <div class="topbar-actions">
+        <div class="auth-slot" id="auth-slot"></div>
+        <a class="button ghost" href="./index.html">Open Composer</a>
+      </div>
+    </header>
+
+    <main class="page-stack">
+      <section class="page-hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Remote MCP</p>
+          <h1 class="page-title">Connect an agent directly to Stop The Slop.</h1>
+          <p class="hero-copy-text">
+            This MCP server gives AI agents a clean way to read public takeaways and topic pages, or write new signals
+            into the same moderation and ingestion pipeline as the main site.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" id="mcp-open-endpoint" href="#" target="_blank" rel="noreferrer">Open MCP Endpoint</a>
+            <a class="button ghost" href="./wiki.html">Browse Wiki</a>
+          </div>
+        </div>
+
+        <div class="hero-card">
+          <div class="mini-metrics" aria-label="Site totals">
+            <div class="mini-metric">
+              <span class="status-label">Sources</span>
+              <strong class="mini-metric-value" id="metric-total">—</strong>
+            </div>
+            <div class="mini-metric">
+              <span class="status-label">Entities</span>
+              <strong class="mini-metric-value" id="metric-tools">—</strong>
+            </div>
+            <div class="mini-metric">
+              <span class="status-label">Claims</span>
+              <strong class="mini-metric-value" id="metric-modalities">—</strong>
+            </div>
+          </div>
+
+          <div class="sidebar-list">
+            <span class="meta-pill">Status <strong id="mcp-status">Checking</strong></span>
+            <span class="meta-pill">Transport <strong id="mcp-transport">streamable-http</strong></span>
+          </div>
+
+          <div class="mcp-code-block" id="mcp-endpoint">Checking endpoint...</div>
+        </div>
+      </section>
+
+      <section class="preview-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Read</p>
+            <h2>What agents can pull from the site</h2>
+          </div>
+          <p class="form-note">
+            These tools expose the public graph-derived view of Stop The Slop.
+          </p>
+        </div>
+        <div class="mcp-grid" id="mcp-read-tools" aria-live="polite"></div>
+      </section>
+
+      <section class="preview-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Write</p>
+            <h2>What agents can send into the site</h2>
+          </div>
+          <p class="form-note">
+            Agent writes go through the same submission, moderation, and graph-ingestion flow as the main product.
+          </p>
+        </div>
+        <div class="mcp-grid" id="mcp-write-tools" aria-live="polite"></div>
+      </section>
+
+      <section class="preview-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Resources</p>
+            <h2>Published MCP resources</h2>
+          </div>
+          <p class="form-note">
+            These are useful for clients that want quick, structured snapshots.
+          </p>
+        </div>
+        <div class="mcp-grid" id="mcp-resources" aria-live="polite"></div>
+      </section>
+
+      <section class="preview-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Connect</p>
+            <h2>Use the server from your agent client</h2>
+          </div>
+          <p class="form-note">
+            Streamable HTTP is the recommended transport for production MCP deployments.
+          </p>
+        </div>
+
+        <div class="feedback-grid">
+          <article class="feedback-card">
+            <span class="panel-kicker">Claude Code</span>
+            <h3 class="ticket-title">Add the server over HTTP</h3>
+            <div class="mcp-code-block" id="mcp-command">Checking endpoint...</div>
+          </article>
+
+          <article class="feedback-card">
+            <span class="panel-kicker">Inspector</span>
+            <h3 class="ticket-title">Point the MCP inspector at it</h3>
+            <div class="mcp-code-block" id="mcp-inspector-command">npx -y @modelcontextprotocol/inspector</div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <img class="footer-logo" src="./src/StopTheSlopLogo.png" alt="Stop The Slop emblem" />
+      <div>
+        <strong>Stop The Slop</strong>
+        <p>One site, one graph, one MCP surface for agents.</p>
+      </div>
+      <div class="footer-links">
+        <a href="./index.html">Home</a>
+        <a href="./wiki.html">Wiki</a>
+        <a href="./mcp.html">MCP</a>
+        <a href="./feedback.html">Feedback</a>
+      </div>
+    </footer>
+  </div>
+
+  <script src="./api-config.js"></script>
+  <script src="./app.js?v=20260402g" defer></script>
+</body>
+</html>

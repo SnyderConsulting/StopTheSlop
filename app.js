@@ -1,5 +1,6 @@
 const PAGE = document.body.dataset.page || "home";
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
+const DEFAULT_MCP_BASE_URL = "";
 const SESSION_STORAGE_KEY = "sts_session_token";
 const CONVERSATION_TOKEN_STORAGE_KEY = "sts_conversation_tokens_v1";
 
@@ -27,13 +28,24 @@ const refs = {
   entitySearch: document.getElementById("entity-search"),
   entityList: document.getElementById("entity-list"),
   entityInspector: document.getElementById("entity-inspector"),
+  mcpStatus: document.getElementById("mcp-status"),
+  mcpTransport: document.getElementById("mcp-transport"),
+  mcpEndpoint: document.getElementById("mcp-endpoint"),
+  mcpOpenEndpoint: document.getElementById("mcp-open-endpoint"),
+  mcpReadTools: document.getElementById("mcp-read-tools"),
+  mcpWriteTools: document.getElementById("mcp-write-tools"),
+  mcpResources: document.getElementById("mcp-resources"),
+  mcpCommand: document.getElementById("mcp-command"),
+  mcpInspectorCommand: document.getElementById("mcp-inspector-command"),
 };
 
 const state = {
   apiBaseUrl: readApiBaseUrl(),
+  mcpBaseUrl: readMcpBaseUrl(),
   config: null,
   session: null,
   feed: null,
+  mcpInfo: null,
   homeSubmitting: false,
   conversationSubmitting: false,
   conversation: null,
@@ -72,6 +84,11 @@ async function init() {
   if (PAGE === "wiki") {
     wireWikiPage();
     await loadWikiPage();
+    return;
+  }
+
+  if (PAGE === "mcp") {
+    await loadMcpPage();
     return;
   }
 
@@ -154,6 +171,25 @@ async function loadWikiPage() {
     refs.entitySearch.value = query;
   }
   await loadEntityList(refs.entitySearch?.value || "");
+}
+
+async function loadMcpPage() {
+  renderMcpPageLoading();
+  if (!state.mcpBaseUrl) {
+    renderMcpPageUnavailable("The MCP server endpoint is not configured yet.");
+    return;
+  }
+
+  try {
+    const [info, health] = await Promise.all([
+      fetchAbsoluteJson(`${state.mcpBaseUrl}/info`),
+      fetchAbsoluteJson(`${state.mcpBaseUrl}/healthz`),
+    ]);
+    state.mcpInfo = info;
+    renderMcpPage(info, health);
+  } catch (error) {
+    renderMcpPageUnavailable(error.message || "The MCP server could not be reached.");
+  }
 }
 
 async function fetchAndRenderConversation(conversationId) {
@@ -825,6 +861,129 @@ function renderStateCard(title, body) {
   `;
 }
 
+function renderMcpPageLoading() {
+  if (refs.mcpStatus) {
+    refs.mcpStatus.textContent = "Checking";
+  }
+  if (refs.mcpTransport) {
+    refs.mcpTransport.textContent = "streamable-http";
+  }
+  if (refs.mcpEndpoint) {
+    refs.mcpEndpoint.textContent = state.mcpBaseUrl ? `${state.mcpBaseUrl}/mcp` : "Not configured";
+  }
+  if (refs.mcpOpenEndpoint) {
+    refs.mcpOpenEndpoint.href = state.mcpBaseUrl ? `${state.mcpBaseUrl}/mcp` : "#";
+  }
+  if (refs.mcpReadTools) {
+    refs.mcpReadTools.innerHTML = renderStateCard("Loading tools", "Reading the live MCP tool catalog.");
+  }
+  if (refs.mcpWriteTools) {
+    refs.mcpWriteTools.innerHTML = renderStateCard("Loading access", "Checking which write flows are exposed to agents.");
+  }
+  if (refs.mcpResources) {
+    refs.mcpResources.innerHTML = renderStateCard("Loading resources", "Looking up the published MCP resources.");
+  }
+  if (refs.mcpCommand) {
+    refs.mcpCommand.textContent = state.mcpBaseUrl
+      ? `claude mcp add --transport http stop-the-slop ${state.mcpBaseUrl}/mcp`
+      : "Endpoint not configured";
+  }
+  if (refs.mcpInspectorCommand) {
+    refs.mcpInspectorCommand.textContent = "npx -y @modelcontextprotocol/inspector";
+  }
+}
+
+function renderMcpPageUnavailable(message) {
+  if (refs.mcpStatus) {
+    refs.mcpStatus.textContent = "Unavailable";
+  }
+  if (refs.mcpOpenEndpoint) {
+    refs.mcpOpenEndpoint.href = "#";
+  }
+  const card = renderStateCard("MCP server unavailable", message);
+  if (refs.mcpReadTools) {
+    refs.mcpReadTools.innerHTML = card;
+  }
+  if (refs.mcpWriteTools) {
+    refs.mcpWriteTools.innerHTML = card;
+  }
+  if (refs.mcpResources) {
+    refs.mcpResources.innerHTML = card;
+  }
+}
+
+function renderMcpPage(info, health) {
+  const endpoint = info?.mcpEndpoint || (state.mcpBaseUrl ? `${state.mcpBaseUrl}/mcp` : "");
+  if (refs.mcpStatus) {
+    refs.mcpStatus.textContent = health?.ok ? "Live" : "Degraded";
+  }
+  if (refs.mcpTransport) {
+    refs.mcpTransport.textContent = info?.transport || "streamable-http";
+  }
+  if (refs.mcpEndpoint) {
+    refs.mcpEndpoint.textContent = endpoint || "Unavailable";
+  }
+  if (refs.mcpOpenEndpoint) {
+    refs.mcpOpenEndpoint.href = endpoint || "#";
+  }
+  if (refs.mcpCommand) {
+    refs.mcpCommand.textContent = endpoint
+      ? `claude mcp add --transport http stop-the-slop ${endpoint}`
+      : "Endpoint unavailable";
+  }
+  if (refs.mcpInspectorCommand) {
+    refs.mcpInspectorCommand.textContent = endpoint
+      ? `Connect the inspector to ${endpoint}`
+      : "Endpoint unavailable";
+  }
+
+  const tools = Array.isArray(info?.toolCatalog) ? info.toolCatalog : [];
+  if (refs.mcpReadTools) {
+    refs.mcpReadTools.innerHTML = renderMcpToolCards(tools.filter((tool) => String(tool.access || "").startsWith("read")));
+  }
+  if (refs.mcpWriteTools) {
+    refs.mcpWriteTools.innerHTML = renderMcpToolCards(tools.filter((tool) => !String(tool.access || "").startsWith("read")));
+  }
+  if (refs.mcpResources) {
+    refs.mcpResources.innerHTML = renderMcpResourceCards(Array.isArray(info?.resourceCatalog) ? info.resourceCatalog : []);
+  }
+}
+
+function renderMcpToolCards(items) {
+  if (!items.length) {
+    return renderStateCard("No tools published", "The server is up, but it did not return any tool metadata.");
+  }
+  return items
+    .map(
+      (item) => `
+        <article class="mcp-tool-card">
+          <div class="ticket-topline">
+            <strong>${escapeHtml(item.name || "Unnamed tool")}</strong>
+            <span class="meta-pill">${escapeHtml(item.access || "read")}</span>
+          </div>
+          <p>${escapeHtml(item.description || "No description provided.")}</p>
+        </article>
+      `
+    )
+    .join("");
+}
+
+function renderMcpResourceCards(items) {
+  if (!items.length) {
+    return renderStateCard("No resources published", "This MCP server is currently tool-first.");
+  }
+  return items
+    .map(
+      (item) => `
+        <article class="mcp-tool-card">
+          <strong>${escapeHtml(item.uri || "Unnamed resource")}</strong>
+          <p>${escapeHtml(item.description || "No description provided.")}</p>
+        </article>
+      `
+    )
+    .join("");
+}
+
 function syncMetrics(metrics) {
   if (!metrics) return;
   if (refs.metricTotal) {
@@ -888,6 +1047,17 @@ async function apiFetch(path, options = {}) {
   return payload;
 }
 
+async function fetchAbsoluteJson(url, options = {}) {
+  const response = await fetch(url, options);
+  const contentType = response.headers.get("content-type") || "";
+  const payload = contentType.includes("application/json") ? await response.json() : null;
+  if (!response.ok) {
+    const detail = payload?.detail || `Request failed with ${response.status}`;
+    throw new Error(detail);
+  }
+  return payload;
+}
+
 function buildConversationHeaders(conversationId) {
   const headers = {};
   const manageToken = readConversationToken(conversationId);
@@ -902,6 +1072,13 @@ function readApiBaseUrl() {
     return window.STS_API_BASE.trim().replace(/\/$/, "");
   }
   return DEFAULT_API_BASE_URL;
+}
+
+function readMcpBaseUrl() {
+  if (typeof window.STS_MCP_BASE === "string" && window.STS_MCP_BASE.trim()) {
+    return window.STS_MCP_BASE.trim().replace(/\/$/, "");
+  }
+  return DEFAULT_MCP_BASE_URL;
 }
 
 function readStoredSessionToken() {
