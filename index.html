@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stop The Slop | Share Something About AI</title>
+  <meta
+    name="description"
+    content="Share something about AI. Ask a question, drop a link, upload a screenshot, or contribute a signal that flows into the living graph."
+  />
+  <script src="./analytics-config.js"></script>
+  <script src="./analytics-bootstrap.js?v=20260327a"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="./src/StopTheSlopLogo.png" />
+  <link rel="stylesheet" href="./styles.css?v=20260402a" />
+</head>
+<body data-page="home">
+  <div class="page-shell">
+    <div class="bg-grid"></div>
+
+    <header class="topbar">
+      <a class="brand" href="./index.html" aria-label="Stop The Slop home">
+        <img class="brand-logo" src="./src/StopTheSlopLogoHorizontal.png" alt="Stop The Slop" />
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a class="is-active" href="./index.html">Home</a>
+        <a href="./wiki.html">Wiki</a>
+        <a href="./feedback.html">Feedback</a>
+        <a href="https://discord.gg/6fYrFKpr" target="_blank" rel="noreferrer">Discord</a>
+        <a href="https://www.reddit.com/r/Stop_The_Slop/" target="_blank" rel="noreferrer">Reddit</a>
+      </nav>
+      <div class="topbar-actions">
+        <div class="auth-slot" id="auth-slot"></div>
+        <a class="button ghost" href="./wiki.html">Open Wiki</a>
+      </div>
+    </header>
+
+    <main class="page-stack">
+      <section class="home-hero">
+        <div class="home-copy">
+          <p class="eyebrow">Universal Intake, Grounded Replies</p>
+          <h1 class="hero-title">Share something about AI.</h1>
+          <p class="hero-copy-text">
+            Ask a question. Drop a URL. Upload a screenshot, PDF, clip, or benchmark. The system responds in a grounded
+            conversation and updates the living graph behind the public wiki.
+          </p>
+
+          <div class="mini-metrics" aria-label="Community totals">
+            <div class="mini-metric">
+              <span class="status-label">Sources</span>
+              <strong class="mini-metric-value" id="metric-total">—</strong>
+            </div>
+            <div class="mini-metric">
+              <span class="status-label">Entities</span>
+              <strong class="mini-metric-value" id="metric-tools">—</strong>
+            </div>
+            <div class="mini-metric">
+              <span class="status-label">Claims</span>
+              <strong class="mini-metric-value" id="metric-modalities">—</strong>
+            </div>
+          </div>
+
+          <div class="signal-strip" id="signal-strip">
+            <article class="signal-strip-card">
+              <span class="panel-kicker">Graph</span>
+              <p>People are saying Claude Code is the king.</p>
+            </article>
+            <article class="signal-strip-card">
+              <span class="panel-kicker">Graph</span>
+              <p>Chroma's new context model is incredible for agentic RAG.</p>
+            </article>
+            <article class="signal-strip-card">
+              <span class="panel-kicker">Graph</span>
+              <p>Useful guides and weird failures are both flowing into the same memory layer.</p>
+            </article>
+          </div>
+
+          <p class="community-note">
+            Raw user submissions stay private. The public product shows derived claims, guides, questions, answers, and hot subjects from the graph.
+          </p>
+        </div>
+
+        <section class="home-intake-panel" id="intake">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Composer</p>
+              <h2>Start a conversation</h2>
+            </div>
+            <p class="form-note">
+              Anonymous posting is live. Accounts are optional.
+            </p>
+          </div>
+
+          <form class="composer-form" id="composer-form">
+            <label class="signal-textarea">
+              <span>Share something about AI</span>
+              <textarea
+                id="composer-text"
+                name="text"
+                rows="8"
+                maxlength="6000"
+                placeholder="Paste a thought, a complaint, a guide, a question, a benchmark, or whatever else you want the graph to absorb."
+              ></textarea>
+            </label>
+
+            <label class="signal-textarea">
+              <span>URLs</span>
+              <textarea
+                id="composer-urls"
+                name="urls"
+                rows="3"
+                maxlength="6000"
+                placeholder="https://example.com/article&#10;https://x.com/some-thread"
+              ></textarea>
+            </label>
+
+            <label class="signal-textarea">
+              <span>Uploads</span>
+              <input id="composer-files" name="files" type="file" multiple />
+            </label>
+
+            <p class="field-note" id="composer-helper">
+              Text, URLs, images, PDFs, audio, video, or mixed submissions all go through the same intake.
+            </p>
+
+            <div class="form-footer">
+              <div class="auth-note" id="composer-auth-note"></div>
+              <div class="form-actions">
+                <button class="button ghost" id="composer-seed" type="button">Load Example</button>
+                <button class="button primary" id="composer-submit" type="submit">Ask / Submit</button>
+              </div>
+            </div>
+          </form>
+        </section>
+      </section>
+
+      <section class="preview-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Derived Feed</p>
+            <h2>What the graph is surfacing right now</h2>
+          </div>
+          <a class="button ghost inline-button" href="./wiki.html">Browse Wiki</a>
+        </div>
+        <div class="preview-grid" id="home-feed" aria-live="polite"></div>
+      </section>
+
+      <section class="preview-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Rising Entities</p>
+            <h2>Nodes forming from the latest evidence</h2>
+          </div>
+        </div>
+        <div class="preview-grid" id="home-entity-list" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <img class="footer-logo" src="./src/StopTheSlopLogo.png" alt="Stop The Slop emblem" />
+      <div>
+        <strong>Stop The Slop</strong>
+        <p>One composer. Private sources. Public graph-derived memory.</p>
+      </div>
+      <div class="footer-links">
+        <a href="./index.html">Home</a>
+        <a href="./wiki.html">Wiki</a>
+        <a href="./feedback.html">Feedback</a>
+        <a href="https://discord.gg/6fYrFKpr" target="_blank" rel="noreferrer">Discord</a>
+        <a href="https://www.reddit.com/r/Stop_The_Slop/" target="_blank" rel="noreferrer">Reddit</a>
+      </div>
+    </footer>
+  </div>
+
+  <script src="./api-config.js"></script>
+  <script src="./app.js?v=20260402a" defer></script>
+</body>
+</html>

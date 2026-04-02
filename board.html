@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stop The Slop | Conversation</title>
+  <meta
+    name="description"
+    content="Continue a private grounded AI conversation while the graph updates behind the scenes."
+  />
+  <script src="./analytics-config.js"></script>
+  <script src="./analytics-bootstrap.js?v=20260327a"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="./src/StopTheSlopLogo.png" />
+  <link rel="stylesheet" href="./styles.css?v=20260402a" />
+</head>
+<body data-page="conversation">
+  <div class="page-shell">
+    <div class="bg-grid"></div>
+
+    <header class="topbar">
+      <a class="brand" href="./index.html" aria-label="Stop The Slop home">
+        <img class="brand-logo" src="./src/StopTheSlopLogoHorizontal.png" alt="Stop The Slop" />
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="./index.html">Home</a>
+        <a href="./wiki.html">Wiki</a>
+        <a href="./feedback.html">Feedback</a>
+        <a href="https://discord.gg/6fYrFKpr" target="_blank" rel="noreferrer">Discord</a>
+        <a href="https://www.reddit.com/r/Stop_The_Slop/" target="_blank" rel="noreferrer">Reddit</a>
+      </nav>
+      <div class="topbar-actions">
+        <div class="auth-slot" id="auth-slot"></div>
+        <a class="button ghost" href="./index.html">Back Home</a>
+      </div>
+    </header>
+
+    <main class="page-stack">
+      <section class="page-hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Conversation</p>
+          <h1 class="page-title">Keep talking. Keep ingesting.</h1>
+          <p class="hero-copy-text">
+            This thread is private by default. The assistant can ground on your submissions, the living graph, and the live web while it updates graph state behind the scenes.
+          </p>
+        </div>
+
+        <div class="hero-card">
+          <div class="mini-metrics" aria-label="Conversation totals">
+            <div class="mini-metric">
+              <span class="status-label">Sources</span>
+              <strong class="mini-metric-value" id="metric-total">—</strong>
+            </div>
+            <div class="mini-metric">
+              <span class="status-label">Entities</span>
+              <strong class="mini-metric-value" id="metric-tools">—</strong>
+            </div>
+            <div class="mini-metric">
+              <span class="status-label">Claims</span>
+              <strong class="mini-metric-value" id="metric-modalities">—</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="board-section conversation-layout">
+        <div class="conversation-column">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Thread</p>
+              <h2 id="conversation-title">Private conversation</h2>
+            </div>
+            <p class="form-note" id="conversation-meta">Conversation access is managed by your account or your private manage token.</p>
+          </div>
+
+          <div class="conversation-thread" id="conversation-thread" aria-live="polite"></div>
+
+          <form class="composer-form" id="conversation-form">
+            <label class="signal-textarea">
+              <span>Continue the conversation</span>
+              <textarea
+                id="conversation-text"
+                name="text"
+                rows="5"
+                maxlength="6000"
+                placeholder="Ask a follow-up, add another URL, or upload more evidence."
+              ></textarea>
+            </label>
+
+            <label class="signal-textarea">
+              <span>URLs</span>
+              <textarea
+                id="conversation-urls"
+                name="urls"
+                rows="2"
+                maxlength="6000"
+                placeholder="https://example.com/another-source"
+              ></textarea>
+            </label>
+
+            <label class="signal-textarea">
+              <span>Uploads</span>
+              <input id="conversation-files" name="files" type="file" multiple />
+            </label>
+
+            <div class="form-footer">
+              <div class="auth-note" id="conversation-auth-note"></div>
+              <div class="form-actions">
+                <button class="button primary" id="conversation-submit" type="submit">Send</button>
+              </div>
+            </div>
+          </form>
+        </div>
+
+        <aside class="ticket-inspector conversation-sidebar" id="conversation-sidebar">
+          <div class="empty-state">
+            <h3>No conversation loaded</h3>
+            <p>Start from the home composer or open a valid conversation link.</p>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <img class="footer-logo" src="./src/StopTheSlopLogo.png" alt="Stop The Slop emblem" />
+      <div>
+        <strong>Stop The Slop</strong>
+        <p>The thread stays private. The graph keeps the public memory.</p>
+      </div>
+      <div class="footer-links">
+        <a href="./index.html">Home</a>
+        <a href="./wiki.html">Wiki</a>
+        <a href="./feedback.html">Feedback</a>
+      </div>
+    </footer>
+  </div>
+
+  <script src="./api-config.js"></script>
+  <script src="./app.js?v=20260402a" defer></script>
+</body>
+</html>

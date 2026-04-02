@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stop The Slop | Wiki</title>
+  <meta
+    name="description"
+    content="Explore the Stop The Slop living graph of AI entities, claims, guides, and questions."
+  />
+  <script src="./analytics-config.js"></script>
+  <script src="./analytics-bootstrap.js?v=20260327a"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="./src/StopTheSlopLogo.png" />
+  <link rel="stylesheet" href="./styles.css?v=20260402a" />
+</head>
+<body data-page="wiki">
+  <div class="page-shell">
+    <div class="bg-grid"></div>
+
+    <header class="topbar">
+      <a class="brand" href="./index.html" aria-label="Stop The Slop home">
+        <img class="brand-logo" src="./src/StopTheSlopLogoHorizontal.png" alt="Stop The Slop" />
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="./index.html">Home</a>
+        <a class="is-active" href="./wiki.html">Wiki</a>
+        <a href="./feedback.html">Feedback</a>
+        <a href="https://discord.gg/6fYrFKpr" target="_blank" rel="noreferrer">Discord</a>
+        <a href="https://www.reddit.com/r/Stop_The_Slop/" target="_blank" rel="noreferrer">Reddit</a>
+      </nav>
+      <div class="topbar-actions">
+        <div class="auth-slot" id="auth-slot"></div>
+        <a class="button ghost" href="./index.html">Open Composer</a>
+      </div>
+    </header>
+
+    <main class="page-stack">
+      <section class="page-hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Living Graph</p>
+          <h1 class="page-title">See what the graph believes right now.</h1>
+          <p class="hero-copy-text">
+            Entity pages aggregate claims, guides, questions, and related subjects from private submissions and public evidence.
+          </p>
+        </div>
+
+        <div class="hero-card">
+          <div class="mini-metrics" aria-label="Wiki totals">
+            <div class="mini-metric">
+              <span class="status-label">Sources</span>
+              <strong class="mini-metric-value" id="metric-total">0</strong>
+            </div>
+            <div class="mini-metric">
+              <span class="status-label">Entities</span>
+              <strong class="mini-metric-value" id="metric-tools">0</strong>
+            </div>
+            <div class="mini-metric">
+              <span class="status-label">Claims</span>
+              <strong class="mini-metric-value" id="metric-modalities">0</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="wiki-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Explore</p>
+            <h2>Search entities and graph memory</h2>
+          </div>
+          <p class="form-note">
+            Search by product, model, vendor, alias, strength, weakness, or guide language.
+          </p>
+        </div>
+
+        <div class="filters entity-filters" aria-label="Wiki filters">
+          <label class="search-field entity-search">
+            <span>Search entities</span>
+            <input id="entity-search" type="search" placeholder="Search Claude Code, Chroma, agentic RAG, long context, etc." />
+          </label>
+        </div>
+
+        <div class="board-layout">
+          <div class="ticket-list entity-list" id="entity-list" aria-live="polite"></div>
+
+          <aside class="ticket-inspector entity-inspector" id="entity-inspector">
+            <div class="empty-state">
+              <h3>Select an entity</h3>
+              <p>Open any node to inspect claims, guides, questions, and related subjects.</p>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <img class="footer-logo" src="./src/StopTheSlopLogo.png" alt="Stop The Slop emblem" />
+      <div>
+        <strong>Stop The Slop</strong>
+        <p>The wiki is the public shape of the graph, not the raw shape of submissions.</p>
+      </div>
+      <div class="footer-links">
+        <a href="./index.html">Home</a>
+        <a href="./wiki.html">Wiki</a>
+        <a href="./feedback.html">Feedback</a>
+      </div>
+    </footer>
+  </div>
+
+  <script src="./api-config.js"></script>
+  <script src="./app.js?v=20260402a" defer></script>
+</body>
+</html>

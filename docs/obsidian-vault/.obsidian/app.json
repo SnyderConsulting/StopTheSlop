@@ -1,0 +1,8 @@
+{
+  "attachmentFolderPath": "99-Attachments",
+  "alwaysUpdateLinks": true,
+  "newLinkFormat": "relative",
+  "promptDelete": false,
+  "showLineNumber": true,
+  "useMarkdownLinks": false
+}

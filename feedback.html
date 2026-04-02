@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stop The Slop | Feedback</title>
+  <meta
+    name="description"
+    content="Give product feedback on Stop The Slop, request features, and vote on ideas shaping the site."
+  />
+  <script src="./analytics-config.js"></script>
+  <script src="./analytics-bootstrap.js?v=20260327a"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="./src/StopTheSlopLogo.png" />
+  <link rel="stylesheet" href="./styles.css?v=20260402a" />
+</head>
+<body data-page="feedback">
+  <div class="page-shell">
+    <div class="bg-grid"></div>
+
+    <header class="topbar">
+      <a class="brand" href="./index.html" aria-label="Stop The Slop home">
+        <img class="brand-logo" src="./src/StopTheSlopLogoHorizontal.png" alt="Stop The Slop" />
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="./index.html">Home</a>
+        <a href="./wiki.html">Wiki</a>
+        <a class="is-active" href="./feedback.html">Feedback</a>
+        <a href="https://discord.gg/6fYrFKpr" target="_blank" rel="noreferrer">Discord</a>
+        <a href="https://www.reddit.com/r/Stop_The_Slop/" target="_blank" rel="noreferrer">Reddit</a>
+      </nav>
+      <div class="topbar-actions">
+        <div class="auth-slot" id="auth-slot"></div>
+        <a class="button ghost" href="./wiki.html" data-analytics-event="sts_cta_click" data-analytics-label="feedback_topbar_open_wiki">Open Wiki</a>
+        <a class="button primary" href="https://stop-the-slop.canny.io/feature-requests" target="_blank" rel="noreferrer" data-analytics-event="sts_cta_click" data-analytics-label="feedback_topbar_open_canny">Open Canny</a>
+      </div>
+    </header>
+
+    <main class="page-stack">
+      <section class="page-hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Product Feedback</p>
+          <h1 class="page-title">Help shape Stop The Slop itself.</h1>
+          <p class="hero-copy-text">
+            The composer and graph are for AI experiences. This page is for feedback about the product: feature requests, UX friction,
+            bugs, moderation ideas, and workflow improvements.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="https://stop-the-slop.canny.io/feature-requests" target="_blank" rel="noreferrer" data-analytics-event="sts_cta_click" data-analytics-label="feedback_hero_open_canny">Open Feature Requests</a>
+            <a class="button ghost" href="./index.html#intake" data-analytics-event="sts_cta_click" data-analytics-label="feedback_hero_post_signal">Post AI Signal Instead</a>
+          </div>
+        </div>
+
+        <div class="hero-card">
+          <div class="mini-metrics" aria-label="Site totals">
+            <div class="mini-metric">
+              <span class="status-label">Sources</span>
+              <strong class="mini-metric-value" id="metric-total">0</strong>
+            </div>
+            <div class="mini-metric">
+              <span class="status-label">Entities</span>
+              <strong class="mini-metric-value" id="metric-tools">0</strong>
+            </div>
+            <div class="mini-metric">
+              <span class="status-label">Claims</span>
+              <strong class="mini-metric-value" id="metric-modalities">0</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="preview-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Use The Right Surface</p>
+            <h2>Where should this go?</h2>
+          </div>
+          <p class="form-note">
+            Keep AI experiences and product feedback separate so both stay legible.
+          </p>
+        </div>
+
+        <div class="feedback-grid">
+          <article class="feedback-card">
+            <span class="panel-kicker">Use The Composer</span>
+            <h3 class="ticket-title">When AI did something worth sharing</h3>
+            <p>
+              Use the main product when you want to say what happened with a model, tool, service, chatbot, or imported page.
+            </p>
+            <ul class="feedback-list">
+              <li>failures and weird edge cases</li>
+              <li>praise, wins, and recommendations</li>
+              <li>comparisons like “Claude was better than ChatGPT for this task”</li>
+              <li>community slop voting on imported content</li>
+            </ul>
+            <div class="hero-actions">
+              <a class="button ghost" href="./index.html#intake" data-analytics-event="sts_cta_click" data-analytics-label="feedback_use_board_post_signal">Post A Signal</a>
+            </div>
+          </article>
+
+          <article class="feedback-card">
+            <span class="panel-kicker">Use Feedback</span>
+            <h3 class="ticket-title">When Stop The Slop needs to improve</h3>
+            <p>
+              Use Canny when the product itself needs something better, clearer, faster, or more trustworthy.
+            </p>
+            <ul class="feedback-list">
+              <li>feature requests and missing workflows</li>
+              <li>posting friction, search pain, or mobile bugs</li>
+              <li>moderation, trust, or account-system feedback</li>
+              <li>ideas for graph publishing, provenance UI, crawler workflows, or analytics</li>
+            </ul>
+            <div class="hero-actions">
+              <a class="button primary" href="https://stop-the-slop.canny.io/feature-requests" target="_blank" rel="noreferrer" data-analytics-event="sts_cta_click" data-analytics-label="feedback_use_feedback_open_canny">Open Canny</a>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="preview-section">
+        <div class="feedback-callout">
+          <div>
+            <p class="eyebrow">Canny</p>
+            <h2>Request a feature or vote on one.</h2>
+            <p class="hero-copy-text">
+              Canny opens in a new tab. That is the place for Stop The Slop product feedback and feature requests.
+            </p>
+          </div>
+          <div class="feedback-callout-actions">
+            <a class="button primary" href="https://stop-the-slop.canny.io/feature-requests" target="_blank" rel="noreferrer" data-analytics-event="sts_cta_click" data-analytics-label="feedback_callout_open_board">Open Feature Requests</a>
+            <a class="button ghost" href="./index.html" data-analytics-event="sts_cta_click" data-analytics-label="feedback_callout_back_to_home">Back To Home</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <img class="footer-logo" src="./src/StopTheSlopLogo.png" alt="Stop The Slop emblem" />
+      <div>
+        <strong>Stop The Slop</strong>
+        <p>Use the composer and wiki for AI knowledge. Use feedback for requests about the product itself.</p>
+      </div>
+      <div class="footer-links">
+        <a href="./index.html">Home</a>
+        <a href="./wiki.html">Wiki</a>
+        <a href="./feedback.html">Feedback</a>
+        <a href="https://discord.gg/6fYrFKpr" target="_blank" rel="noreferrer">Discord</a>
+        <a href="https://www.reddit.com/r/Stop_The_Slop/" target="_blank" rel="noreferrer">Reddit</a>
+      </div>
+    </footer>
+  </div>
+
+  <script src="./api-config.js"></script>
+  <script src="./app.js?v=20260402a" defer></script>
+</body>
+</html>
