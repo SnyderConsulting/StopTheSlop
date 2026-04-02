@@ -6,7 +6,7 @@
   <title>Stop The Slop | Share Something About AI</title>
   <meta
     name="description"
-    content="Ask a question about AI or share a complaint, guide, benchmark, or link. Stop The Slop answers and turns repeated patterns into public takeaways."
+    content="Ask a question about AI or share what happened. Stop The Slop answers in a private thread and turns repeated patterns into public takeaways."
   />
   <script src="./analytics-config.js"></script>
   <script src="./analytics-bootstrap.js?v=20260327a"></script>
@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="icon" type="image/png" href="./src/StopTheSlopLogo.png" />
-  <link rel="stylesheet" href="./styles.css?v=20260402d" />
+  <link rel="stylesheet" href="./styles.css?v=20260402e" />
 </head>
 <body data-page="home">
   <div class="page-shell">
@@ -38,41 +38,15 @@
     </header>
 
     <main class="page-stack">
-      <section class="home-hero">
-        <div class="home-copy">
-          <p class="eyebrow">Ask, Rant, Recommend, Link</p>
-          <h1 class="hero-title">Dump anything interesting about AI.</h1>
-          <p class="hero-copy-text">
-            Stop The Slop is a place to ask questions or share what happened with AI. Paste a thought,
-            add a link, or drop in a guide or benchmark. The AI answers in a private thread, and the public site only shows cleaned-up takeaways.
-          </p>
-
-          <div class="route-grid onboarding-grid">
-            <article class="route-card">
-              <span class="panel-kicker">1. Share Anything</span>
-              <h2 class="ticket-title">Put AI stuff in the box</h2>
-              <p>Question, complaint, recommendation, guide, benchmark, or link.</p>
-            </article>
-            <article class="route-card">
-              <span class="panel-kicker">2. Get An Answer</span>
-              <h2 class="ticket-title">The AI replies privately</h2>
-              <p>It reads what you submitted, checks the site’s memory and the live web, then answers in an ongoing thread.</p>
-            </article>
-            <article class="route-card">
-              <span class="panel-kicker">3. Public Takeaways</span>
-              <h2 class="ticket-title">The site learns patterns</h2>
-              <p>Your raw post is not published. The public pages only show summaries, claims, guides, and recurring topics.</p>
-            </article>
-          </div>
-
-          <div class="home-example-block">
-            <p class="field-note">Try prompts like:</p>
-            <div class="chip-list">
-              <span class="list-chip">Why do people like Claude Code so much?</span>
-              <span class="list-chip">Here’s a thread about Gemini hallucinating. Is that a common complaint?</span>
-              <span class="list-chip">Here’s a good guide for agentic RAG. Add the useful parts.</span>
-              <span class="list-chip">Is Kimi K2.5 actually good for writing or just coding?</span>
-            </div>
+      <section class="home-hero chat-first-hero">
+        <section class="home-intake-panel chat-first-panel" id="intake">
+          <div class="chat-hero-copy">
+            <p class="eyebrow">One Box</p>
+            <h1 class="hero-title">What happened with AI?</h1>
+            <p class="hero-copy-text">
+              Ask a question, rant about a failure, recommend a tool, or paste a guide. Just type into the box. If your
+              message includes a URL, the backend will inspect it automatically.
+            </p>
           </div>
 
           <div class="mini-metrics" aria-label="Community totals">
@@ -90,34 +64,13 @@
             </div>
           </div>
 
-          <div class="signal-strip" id="signal-strip">
-            <article class="signal-strip-card">
-              <span class="panel-kicker">People Are Saying</span>
-              <p>People are saying Claude Code is the king.</p>
-            </article>
-            <article class="signal-strip-card">
-              <span class="panel-kicker">People Are Saying</span>
-              <p>Chroma's new context model is incredible for agentic RAG.</p>
-            </article>
-            <article class="signal-strip-card">
-              <span class="panel-kicker">People Are Saying</span>
-              <p>Useful guides and weird failures are both flowing into the same memory layer.</p>
-            </article>
-          </div>
-
-          <p class="community-note">
-            Think of the home page as a chat box for AI stuff, and the wiki as the public summary of what people keep discovering.
-          </p>
-        </div>
-
-        <section class="home-intake-panel" id="intake">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">Composer</p>
+              <p class="eyebrow">Chat</p>
               <h2>Tell it what happened or what you want to know</h2>
             </div>
             <p class="form-note">
-              Use it like a chat box plus inbox. One sentence is enough.
+              One message is enough to start.
             </p>
           </div>
 
@@ -129,33 +82,32 @@
                 name="text"
                 rows="8"
                 maxlength="6000"
-                placeholder="Example: Claude Code keeps over-editing my repo. Is that a common complaint? Or: here’s a useful guide for long-context RAG."
-              ></textarea>
-            </label>
-
-            <label class="signal-textarea">
-              <span>Links to inspect</span>
-              <textarea
-                id="composer-urls"
-                name="urls"
-                rows="3"
-                maxlength="6000"
-                placeholder="https://example.com/article&#10;https://x.com/some-thread"
+                placeholder="Example: Claude Code keeps over-editing my repo. Is that a common complaint? You can also paste a URL directly into this message."
               ></textarea>
             </label>
 
             <p class="field-note" id="composer-helper">
-              You can submit only text, only links, or both together.
+              Paste text only. If there is a URL in your message, the backend will pick it up automatically.
             </p>
 
             <div class="form-footer">
               <div class="auth-note" id="composer-auth-note"></div>
               <div class="form-actions">
                 <button class="button ghost" id="composer-seed" type="button">Try Example</button>
-                <button class="button primary" id="composer-submit" type="submit">Get Answer</button>
+                <button class="button primary" id="composer-submit" type="submit">Start Chat</button>
               </div>
             </div>
           </form>
+
+          <div class="home-example-block">
+            <p class="field-note">Try prompts like:</p>
+            <div class="chip-list home-prompt-chips">
+              <span class="list-chip">Why do people like Claude Code so much?</span>
+              <span class="list-chip">Gemini hallucinated again. Is that common?</span>
+              <span class="list-chip">Here’s a good guide for agentic RAG. Add the useful parts.</span>
+              <span class="list-chip">Is Kimi K2.5 actually good for writing or just coding?</span>
+            </div>
+          </div>
         </section>
       </section>
 
@@ -201,6 +153,6 @@
   </div>
 
   <script src="./api-config.js"></script>
-  <script src="./app.js?v=20260402d" defer></script>
+  <script src="./app.js?v=20260402e" defer></script>
 </body>
 </html>

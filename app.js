@@ -13,7 +13,6 @@ const refs = {
   homeEntityList: document.getElementById("home-entity-list"),
   composerForm: document.getElementById("composer-form"),
   composerText: document.getElementById("composer-text"),
-  composerUrls: document.getElementById("composer-urls"),
   composerSeed: document.getElementById("composer-seed"),
   composerSubmit: document.getElementById("composer-submit"),
   composerAuthNote: document.getElementById("composer-auth-note"),
@@ -22,7 +21,6 @@ const refs = {
   conversationThread: document.getElementById("conversation-thread"),
   conversationForm: document.getElementById("conversation-form"),
   conversationText: document.getElementById("conversation-text"),
-  conversationUrls: document.getElementById("conversation-urls"),
   conversationSubmit: document.getElementById("conversation-submit"),
   conversationAuthNote: document.getElementById("conversation-auth-note"),
   conversationSidebar: document.getElementById("conversation-sidebar"),
@@ -210,8 +208,8 @@ async function handleComposerSubmit(event) {
   event.preventDefault();
   if (!refs.composerForm || state.homeSubmitting) return;
 
-  if (!hasComposerContent(refs.composerForm, refs.composerText, refs.composerUrls)) {
-    renderInlineNotice(refs.composerAuthNote, "Share text or add a link.");
+  if (!hasComposerContent(refs.composerForm, refs.composerText)) {
+    renderInlineNotice(refs.composerAuthNote, "Type a message to start.");
     return;
   }
 
@@ -233,7 +231,7 @@ async function handleComposerSubmit(event) {
     renderInlineNotice(refs.composerAuthNote, error.message || "The submission could not be processed.");
   } finally {
     state.homeSubmitting = false;
-    setButtonBusy(refs.composerSubmit, false, "Get Answer");
+    setButtonBusy(refs.composerSubmit, false, "Start Chat");
   }
 }
 
@@ -247,8 +245,8 @@ async function handleConversationSubmit(event) {
     return;
   }
 
-  if (!hasComposerContent(refs.conversationForm, refs.conversationText, refs.conversationUrls)) {
-    renderInlineNotice(refs.conversationAuthNote, "Add text or a link before sending.");
+  if (!hasComposerContent(refs.conversationForm, refs.conversationText)) {
+    renderInlineNotice(refs.conversationAuthNote, "Type a follow-up before sending.");
     return;
   }
 
@@ -285,10 +283,7 @@ async function handleConversationSubmit(event) {
 function seedComposerExample() {
   if (refs.composerText) {
     refs.composerText.value =
-      "People keep saying Claude Code is great for long coding sessions, but I keep hearing mixed things about reliability versus Cursor. What are people actually agreeing on, and what still seems disputed?";
-  }
-  if (refs.composerUrls) {
-    refs.composerUrls.value = "https://www.anthropic.com/claude-code\nhttps://www.cursor.com/";
+      "People keep saying Claude Code is great for long coding sessions, but I keep hearing mixed things about reliability versus Cursor. What are people actually agreeing on, and what still seems disputed? https://www.anthropic.com/claude-code";
   }
   refs.composerText?.focus();
 }
@@ -317,10 +312,10 @@ function renderAuthSlot() {
 }
 
 function renderAuthNotes() {
-  const inputs = "text and links";
+  const inputs = "text";
   const note = state.session?.authenticated
-    ? `Signed in as ${state.session.user.publicHandle || state.session.user.name}. Your raw submission stays private. Accepted inputs: ${inputs}.`
-    : `You can post anonymously. Your raw submission stays private, and the public site only shows cleaned-up takeaways. Accepted inputs: ${inputs}.`;
+    ? `Signed in as ${state.session.user.publicHandle || state.session.user.name}. Your raw submission stays private. Accepted input: ${inputs}. Paste any URL directly into the message.`
+    : `You can post anonymously. Your raw submission stays private, and the public site only shows cleaned-up takeaways. Accepted input: ${inputs}. Paste any URL directly into the message.`;
   renderInlineNotice(refs.composerAuthNote, note, true);
   renderInlineNotice(refs.conversationAuthNote, note, true);
 }
@@ -977,11 +972,10 @@ function setQueryParam(name, value) {
   window.history.replaceState({}, "", url.toString());
 }
 
-function hasComposerContent(form, textField, urlField) {
+function hasComposerContent(form, textField) {
   if (!form) return false;
   const text = textField?.value?.trim() || "";
-  const urls = urlField?.value?.trim() || "";
-  return Boolean(text || urls);
+  return Boolean(text);
 }
 
 function setButtonBusy(button, isBusy, label) {

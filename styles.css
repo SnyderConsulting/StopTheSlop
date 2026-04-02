@@ -296,6 +296,26 @@ a:focus-visible {
   gap: 20px;
 }
 
+.chat-first-hero {
+  grid-template-columns: 1fr;
+}
+
+.chat-first-panel {
+  width: min(960px, 100%);
+  margin: 0 auto;
+  display: grid;
+  gap: 22px;
+}
+
+.chat-hero-copy {
+  display: grid;
+  gap: 14px;
+}
+
+.chat-first-panel .hero-title {
+  max-width: 11ch;
+}
+
 .page-hero {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 0.52fr);

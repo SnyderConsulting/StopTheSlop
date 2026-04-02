@@ -1191,10 +1191,8 @@ def upsert_entity_record(entity: dict[str, Any]) -> dict[str, Any]:
 
 def parse_urls(raw_value: str) -> list[str]:
     urls: list[str] = []
-    for line in re.split(r"[\n,\s]+", read_text(raw_value, 6000)):
-        candidate = read_text(line, 1800)
-        if not candidate:
-            continue
+    for match in re.finditer(r"https?://[^\s<>'\")]+", read_text(raw_value, 6000)):
+        candidate = read_text(match.group(0), 1800).rstrip(".,;:!?])}")
         if candidate.startswith(("http://", "https://")):
             urls.append(candidate)
     return dedupe_texts(urls, limit=10)
@@ -2491,7 +2489,9 @@ def submit_turn(forced_conversation_id: str = "") -> tuple[dict[str, Any], int]:
 
     conversation_id = forced_conversation_id or read_text((form or payload).get("conversationId"), 120)
     text = read_text((form or payload).get("text"), 6000)
-    urls = parse_urls((form or payload).get("urls", ""))
+    field_urls = parse_urls((form or payload).get("urls", ""))
+    inline_urls = parse_urls(text)
+    urls = dedupe_texts([*inline_urls, *field_urls], limit=10)
     uploaded_files = request.files.getlist("files") if form is not None else []
 
     manage_token = read_text((form or payload).get("manageToken"), 240)
@@ -2523,7 +2523,7 @@ def submit_turn(forced_conversation_id: str = "") -> tuple[dict[str, Any], int]:
             part
             for part in [
                 text,
-                "\n".join(urls),
+                "\n".join(field_urls),
                 "\n".join(
                     f"Uploaded {source.get('filename') or source.get('summary')}"
                     for source in source_records
