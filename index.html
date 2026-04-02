@@ -6,7 +6,7 @@
   <title>Stop The Slop | Share Something About AI</title>
   <meta
     name="description"
-    content="Share something about AI. Ask a question, drop a link, upload a screenshot, or contribute a signal that flows into the living graph."
+    content="Ask a question about AI or share a link, screenshot, complaint, guide, or benchmark. Stop The Slop answers and turns repeated patterns into public takeaways."
   />
   <script src="./analytics-config.js"></script>
   <script src="./analytics-bootstrap.js?v=20260327a"></script>
@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="icon" type="image/png" href="./src/StopTheSlopLogo.png" />
-  <link rel="stylesheet" href="./styles.css?v=20260402a" />
+  <link rel="stylesheet" href="./styles.css?v=20260402b" />
 </head>
 <body data-page="home">
   <div class="page-shell">
@@ -33,19 +33,47 @@
       </nav>
       <div class="topbar-actions">
         <div class="auth-slot" id="auth-slot"></div>
-        <a class="button ghost" href="./wiki.html">Open Wiki</a>
+        <a class="button ghost" href="./wiki.html">Browse Takeaways</a>
       </div>
     </header>
 
     <main class="page-stack">
       <section class="home-hero">
         <div class="home-copy">
-          <p class="eyebrow">Universal Intake, Grounded Replies</p>
-          <h1 class="hero-title">Share something about AI.</h1>
+          <p class="eyebrow">Ask, Rant, Recommend, Upload</p>
+          <h1 class="hero-title">Dump anything interesting about AI.</h1>
           <p class="hero-copy-text">
-            Ask a question. Drop a URL. Upload a screenshot, PDF, clip, or benchmark. The system responds in a grounded
-            conversation and updates the living graph behind the public wiki.
+            Stop The Slop is a place to ask questions or share what happened with AI. Paste a thought, link, screenshot,
+            PDF, clip, or benchmark. The AI answers in a private thread, and the public site only shows cleaned-up takeaways.
           </p>
+
+          <div class="route-grid onboarding-grid">
+            <article class="route-card">
+              <span class="panel-kicker">1. Share Anything</span>
+              <h2 class="ticket-title">Put AI stuff in the box</h2>
+              <p>Question, complaint, recommendation, guide, benchmark, link, screenshot, PDF, audio, or video.</p>
+            </article>
+            <article class="route-card">
+              <span class="panel-kicker">2. Get An Answer</span>
+              <h2 class="ticket-title">The AI replies privately</h2>
+              <p>It reads what you submitted, checks the site’s memory and the live web, then answers in an ongoing thread.</p>
+            </article>
+            <article class="route-card">
+              <span class="panel-kicker">3. Public Takeaways</span>
+              <h2 class="ticket-title">The site learns patterns</h2>
+              <p>Your raw post is not published. The public pages only show summaries, claims, guides, and recurring topics.</p>
+            </article>
+          </div>
+
+          <div class="home-example-block">
+            <p class="field-note">Try prompts like:</p>
+            <div class="chip-list">
+              <span class="list-chip">Why do people like Claude Code so much?</span>
+              <span class="list-chip">This screenshot shows Gemini hallucinating. Is that common?</span>
+              <span class="list-chip">Here’s a good guide for agentic RAG. Add the useful parts.</span>
+              <span class="list-chip">Is Kimi K2.5 actually good for writing or just coding?</span>
+            </div>
+          </div>
 
           <div class="mini-metrics" aria-label="Community totals">
             <div class="mini-metric">
@@ -64,21 +92,21 @@
 
           <div class="signal-strip" id="signal-strip">
             <article class="signal-strip-card">
-              <span class="panel-kicker">Graph</span>
+              <span class="panel-kicker">People Are Saying</span>
               <p>People are saying Claude Code is the king.</p>
             </article>
             <article class="signal-strip-card">
-              <span class="panel-kicker">Graph</span>
+              <span class="panel-kicker">People Are Saying</span>
               <p>Chroma's new context model is incredible for agentic RAG.</p>
             </article>
             <article class="signal-strip-card">
-              <span class="panel-kicker">Graph</span>
+              <span class="panel-kicker">People Are Saying</span>
               <p>Useful guides and weird failures are both flowing into the same memory layer.</p>
             </article>
           </div>
 
           <p class="community-note">
-            Raw user submissions stay private. The public product shows derived claims, guides, questions, answers, and hot subjects from the graph.
+            Think of the home page as a chat box for AI stuff, and the wiki as the public summary of what people keep discovering.
           </p>
         </div>
 
@@ -86,27 +114,27 @@
           <div class="section-heading">
             <div>
               <p class="eyebrow">Composer</p>
-              <h2>Start a conversation</h2>
+              <h2>Tell it what happened or what you want to know</h2>
             </div>
             <p class="form-note">
-              Anonymous posting is live. Accounts are optional.
+              Use it like a chat box plus inbox. One sentence is enough.
             </p>
           </div>
 
           <form class="composer-form" id="composer-form">
             <label class="signal-textarea">
-              <span>Share something about AI</span>
+              <span>What happened, or what do you want to know?</span>
               <textarea
                 id="composer-text"
                 name="text"
                 rows="8"
                 maxlength="6000"
-                placeholder="Paste a thought, a complaint, a guide, a question, a benchmark, or whatever else you want the graph to absorb."
+                placeholder="Example: Claude Code keeps over-editing my repo. Is that a common complaint? Or: here’s a useful guide for long-context RAG."
               ></textarea>
             </label>
 
             <label class="signal-textarea">
-              <span>URLs</span>
+              <span>Links to inspect</span>
               <textarea
                 id="composer-urls"
                 name="urls"
@@ -117,19 +145,19 @@
             </label>
 
             <label class="signal-textarea">
-              <span>Uploads</span>
+              <span>Screenshots, PDFs, audio, or video</span>
               <input id="composer-files" name="files" type="file" multiple />
             </label>
 
             <p class="field-note" id="composer-helper">
-              Text, URLs, images, PDFs, audio, video, or mixed submissions all go through the same intake.
+              You can submit only text, only links, only files, or any mix.
             </p>
 
             <div class="form-footer">
               <div class="auth-note" id="composer-auth-note"></div>
               <div class="form-actions">
-                <button class="button ghost" id="composer-seed" type="button">Load Example</button>
-                <button class="button primary" id="composer-submit" type="submit">Ask / Submit</button>
+                <button class="button ghost" id="composer-seed" type="button">Try Example</button>
+                <button class="button primary" id="composer-submit" type="submit">Get Answer</button>
               </div>
             </div>
           </form>
@@ -139,9 +167,12 @@
       <section class="preview-section">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">Derived Feed</p>
-            <h2>What the graph is surfacing right now</h2>
+            <p class="eyebrow">Public Takeaways</p>
+            <h2>What people are learning right now</h2>
           </div>
+          <p class="form-note">
+            The site publishes summaries, claims, guides, and hot topics here. It does not publish raw user posts.
+          </p>
           <a class="button ghost inline-button" href="./wiki.html">Browse Wiki</a>
         </div>
         <div class="preview-grid" id="home-feed" aria-live="polite"></div>
@@ -150,8 +181,8 @@
       <section class="preview-section">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">Rising Entities</p>
-            <h2>Nodes forming from the latest evidence</h2>
+            <p class="eyebrow">Tracked Topics</p>
+            <h2>Tools, models, and subjects people keep bringing up</h2>
           </div>
         </div>
         <div class="preview-grid" id="home-entity-list" aria-live="polite"></div>
@@ -162,7 +193,7 @@
       <img class="footer-logo" src="./src/StopTheSlopLogo.png" alt="Stop The Slop emblem" />
       <div>
         <strong>Stop The Slop</strong>
-        <p>One composer. Private sources. Public graph-derived memory.</p>
+        <p>Ask or share anything about AI. Get a private answer. See public takeaways.</p>
       </div>
       <div class="footer-links">
         <a href="./index.html">Home</a>
@@ -175,6 +206,6 @@
   </div>
 
   <script src="./api-config.js"></script>
-  <script src="./app.js?v=20260402a" defer></script>
+  <script src="./app.js?v=20260402b" defer></script>
 </body>
 </html>

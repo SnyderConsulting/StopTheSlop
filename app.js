@@ -235,7 +235,7 @@ async function handleComposerSubmit(event) {
     renderInlineNotice(refs.composerAuthNote, error.message || "The submission could not be processed.");
   } finally {
     state.homeSubmitting = false;
-    setButtonBusy(refs.composerSubmit, false, "Ask / Submit");
+    setButtonBusy(refs.composerSubmit, false, "Get Answer");
   }
 }
 
@@ -256,7 +256,7 @@ async function handleConversationSubmit(event) {
 
   state.conversationSubmitting = true;
   setButtonBusy(refs.conversationSubmit, true, "Sending...");
-  renderInlineNotice(refs.conversationAuthNote, "Grounding your follow-up and updating the graph.");
+  renderInlineNotice(refs.conversationAuthNote, "Reading your follow-up and updating the site takeaways.");
 
   try {
     const formData = new FormData(refs.conversationForm);
@@ -287,7 +287,7 @@ async function handleConversationSubmit(event) {
 function seedComposerExample() {
   if (refs.composerText) {
     refs.composerText.value =
-      "People keep saying Claude Code is the king for long coding sessions, but I keep hearing mixed things about reliability versus Cursor. Can you ingest this, compare it with what the graph already knows, and tell me where the consensus is strong versus shaky?";
+      "People keep saying Claude Code is great for long coding sessions, but I keep hearing mixed things about reliability versus Cursor. What are people actually agreeing on, and what still seems disputed?";
   }
   if (refs.composerUrls) {
     refs.composerUrls.value = "https://www.anthropic.com/claude-code\nhttps://www.cursor.com/";
@@ -323,8 +323,8 @@ function renderAuthNotes() {
     ? state.config.acceptedUploads.join(", ")
     : "text, URLs, images, PDFs, audio, video";
   const note = state.session?.authenticated
-    ? `Signed in as ${state.session.user.publicHandle || state.session.user.name}. Raw sources stay private. Accepted uploads: ${uploads}.`
-    : `Anonymous posting is enabled. Your raw sources stay private; only graph-derived artifacts become public. Accepted uploads: ${uploads}.`;
+    ? `Signed in as ${state.session.user.publicHandle || state.session.user.name}. Your raw submission stays private. Accepted uploads: ${uploads}.`
+    : `You can post anonymously. Your raw submission stays private, and the public site only shows cleaned-up takeaways. Accepted uploads: ${uploads}.`;
   renderInlineNotice(refs.composerAuthNote, note, true);
   renderInlineNotice(refs.conversationAuthNote, note, true);
 }
@@ -335,8 +335,8 @@ function renderSignalStrip(items) {
   if (!topItems.length) {
     refs.signalStrip.innerHTML = `
       <article class="signal-strip-card">
-        <span class="panel-kicker">Graph</span>
-        <p>The graph is ready for the next submission.</p>
+        <span class="panel-kicker">People Are Saying</span>
+        <p>The site is ready for the next AI question, link, or screenshot.</p>
       </article>
     `;
     return;
@@ -357,7 +357,7 @@ function renderSignalStrip(items) {
 function renderHomeFeed(items) {
   if (!refs.homeFeed) return;
   if (!items.length) {
-    refs.homeFeed.innerHTML = renderStateCard("No graph artifacts yet", "The first submission will start shaping the public memory.");
+    refs.homeFeed.innerHTML = renderStateCard("No public takeaways yet", "The first good submission will start shaping what the site summarizes publicly.");
     return;
   }
   refs.homeFeed.innerHTML = items.map(renderFeedCard).join("");
@@ -366,7 +366,7 @@ function renderHomeFeed(items) {
 function renderFeaturedEntities(entities) {
   if (!refs.homeEntityList) return;
   if (!entities.length) {
-    refs.homeEntityList.innerHTML = renderStateCard("No entities yet", "Entities will appear here as the graph starts clustering subjects.");
+    refs.homeEntityList.innerHTML = renderStateCard("No tracked topics yet", "Topics will appear here as people keep bringing up the same tools, models, and workflows.");
     return;
   }
   refs.homeEntityList.innerHTML = entities.map(renderFeaturedEntityCard).join("");
@@ -385,7 +385,7 @@ function renderFeedCard(item) {
   const body = `
     <span class="panel-kicker">${escapeHtml(formatKind(item.kind))}</span>
     <h3 class="ticket-title">${escapeHtml(item.title || "Untitled signal")}</h3>
-    <p>${escapeHtml(item.summary || "Derived from the latest graph state.")}</p>
+    <p>${escapeHtml(item.summary || "Fresh takeaway from the latest submissions and sources.")}</p>
     <div class="ticket-meta">${meta}</div>
   `;
 
@@ -399,9 +399,9 @@ function renderFeaturedEntityCard(entity) {
   const stats = entityStats(entity);
   return `
     <a class="preview-card entity-card" href="./wiki.html?entity=${encodeURIComponent(entity.entityId || entity.id)}">
-      <span class="panel-kicker">Entity</span>
+      <span class="panel-kicker">Topic Page</span>
       <h3 class="ticket-title">${escapeHtml(entity.title || entity.canonicalName || "Unnamed entity")}</h3>
-      <p>${escapeHtml(entity.summary || "Fresh graph node")}</p>
+      <p>${escapeHtml(entity.summary || "Freshly tracked topic")}</p>
       <div class="ticket-meta">
         <span class="meta-pill">${stats.sourceCount} sources</span>
         <span class="meta-pill">${stats.claimCount} claims</span>
@@ -413,7 +413,7 @@ function renderFeaturedEntityCard(entity) {
 
 function renderConversationLoading() {
   if (refs.conversationThread) {
-    refs.conversationThread.innerHTML = renderStateCard("Loading conversation", "Pulling the private thread and latest grounded reply.");
+    refs.conversationThread.innerHTML = renderStateCard("Loading your thread", "Pulling the private conversation and the latest AI answer.");
   }
   if (refs.conversationSidebar) {
     refs.conversationSidebar.innerHTML = renderSidebarStack([
@@ -436,7 +436,7 @@ function renderConversationUnavailable(message) {
     refs.conversationSidebar.innerHTML = renderSidebarStack([
       renderSidebarBlock(
         "Access",
-        `<p>${escapeHtml(message)}</p><p>Use the private manage link or the account that created the thread.</p>`
+        `<p>${escapeHtml(message)}</p><p>Start on the home page to open a new thread, or use the private manage link for an existing one.</p>`
       ),
     ]);
   }
@@ -444,7 +444,7 @@ function renderConversationUnavailable(message) {
 
 function renderConversation(conversation) {
   if (refs.conversationTitle) {
-    refs.conversationTitle.textContent = conversation.title || "Private conversation";
+    refs.conversationTitle.textContent = conversation.title || "Your private thread";
   }
   if (refs.conversationMeta) {
     const parts = [
@@ -465,7 +465,7 @@ function renderConversation(conversation) {
 }
 
 function renderMessageCard(message) {
-  const roleLabel = message.role === "assistant" ? "Grounded AI" : "You";
+  const roleLabel = message.role === "assistant" ? "AI Answer" : "You";
   const meta = [formatDate(message.createdAt), roleLabel].filter(Boolean).join(" · ");
   const citations = Array.isArray(message.citations) && message.citations.length
     ? `
@@ -510,7 +510,7 @@ function renderConversationSidebar(conversation) {
     renderSidebarBlock(
       "Thread",
       `
-        <p>${escapeHtml(conversation.title || "Private conversation")}</p>
+        <p>${escapeHtml(conversation.title || "Your private thread")}</p>
         <div class="sidebar-list">
           <span class="meta-pill">Created ${escapeHtml(formatDate(conversation.createdAt))}</span>
           <span class="meta-pill">Updated ${escapeHtml(formatDate(conversation.updatedAt))}</span>
@@ -537,7 +537,7 @@ function renderConversationSidebar(conversation) {
   if (latestAssistant?.graphUpdates?.length) {
     blocks.push(
       renderSidebarBlock(
-        "Latest Graph Updates",
+        "What The Site Learned",
         `<div class="sidebar-list">${latestAssistant.graphUpdates.map(renderGraphUpdateChip).join("")}</div>`
       )
     );
@@ -546,7 +546,7 @@ function renderConversationSidebar(conversation) {
   if (latestAssistant?.citations?.length) {
     blocks.push(
       renderSidebarBlock(
-        "Latest Grounding",
+        "Why It Answered That",
         `<div class="citation-list">${latestAssistant.citations.map(renderCitation).join("")}</div>`
       )
     );
@@ -555,8 +555,8 @@ function renderConversationSidebar(conversation) {
   if (!latestAssistant) {
     blocks.push(
       renderSidebarBlock(
-        "Grounding",
-        `<p>The AI has not replied yet. Once it does, grounding and graph updates will appear here.</p>`
+        "Answer Details",
+        `<p>The AI has not replied yet. Once it does, the supporting sources and what the site learned will appear here.</p>`
       )
     );
   }
@@ -566,12 +566,12 @@ function renderConversationSidebar(conversation) {
 
 function renderEntityListLoading() {
   if (!refs.entityList) return;
-  refs.entityList.innerHTML = renderStateCard("Loading entities", "Reading the latest graph nodes.");
+  refs.entityList.innerHTML = renderStateCard("Loading topics", "Reading the latest tracked tools, models, and workflows.");
 }
 
 function renderEntityListError(message) {
   if (refs.entityList) {
-    refs.entityList.innerHTML = renderStateCard("Entities unavailable", message);
+    refs.entityList.innerHTML = renderStateCard("Topics unavailable", message);
   }
   renderEntityInspectorError(message);
 }
@@ -579,7 +579,7 @@ function renderEntityListError(message) {
 function renderEntityList(entities) {
   if (!refs.entityList) return;
   if (!entities.length) {
-    refs.entityList.innerHTML = renderStateCard("No entities found", "Try a broader search or add new source material from the home composer.");
+    refs.entityList.innerHTML = renderStateCard("No topics found", "Try a broader search or add new source material from the home composer.");
     return;
   }
 
@@ -590,10 +590,10 @@ function renderEntityList(entities) {
       return `
         <button class="ticket-card${selectedClass}" type="button" data-entity-id="${escapeHtml(entity.id)}">
           <div class="ticket-topline">
-            <span class="panel-kicker">${escapeHtml(entity.entityType || "entity")}</span>
+            <span class="panel-kicker">${escapeHtml(entity.entityType || "topic")}</span>
             ${entity.vendor ? `<span class="meta-pill">${escapeHtml(entity.vendor)}</span>` : ""}
           </div>
-          <h3 class="ticket-title">${escapeHtml(entity.canonicalName || "Unnamed entity")}</h3>
+          <h3 class="ticket-title">${escapeHtml(entity.canonicalName || "Unnamed topic")}</h3>
           <p>${escapeHtml(entity.summary || entity.description || "No summary yet.")}</p>
           <div class="ticket-card-footer">
             <div class="ticket-meta">
@@ -613,15 +613,15 @@ function renderEntityInspectorEmpty() {
   if (!refs.entityInspector) return;
   refs.entityInspector.innerHTML = `
     <div class="empty-state">
-      <h3>Select an entity</h3>
-      <p>Inspect claims, guides, questions, and related subjects from the living graph.</p>
+      <h3>Select a topic</h3>
+      <p>Open any topic to see the main takeaways, guides, questions, and related subjects.</p>
     </div>
   `;
 }
 
 function renderEntityInspectorError(message) {
   if (!refs.entityInspector) return;
-  refs.entityInspector.innerHTML = renderStateCard("Entity unavailable", message);
+  refs.entityInspector.innerHTML = renderStateCard("Topic unavailable", message);
 }
 
 function renderEntityInspector(entity) {
@@ -630,8 +630,8 @@ function renderEntityInspector(entity) {
   refs.entityInspector.innerHTML = `
     <div class="inspector-body">
       <div class="inspector-block">
-        <span class="panel-kicker">${escapeHtml(entity.entityType || "entity")}</span>
-        <h3>${escapeHtml(entity.canonicalName || "Unnamed entity")}</h3>
+        <span class="panel-kicker">${escapeHtml(entity.entityType || "topic")}</span>
+        <h3>${escapeHtml(entity.canonicalName || "Unnamed topic")}</h3>
         <p>${escapeHtml(entity.summary || entity.description || "No description yet.")}</p>
         <div class="inspector-meta">
           ${entity.vendor ? `<span class="inspector-chip">${escapeHtml(entity.vendor)}</span>` : ""}
@@ -1016,19 +1016,19 @@ function entityStats(entity) {
 function formatKind(kind) {
   switch (kind) {
     case "claim":
-      return "Claim";
+      return "Takeaway";
     case "guide":
       return "Guide";
     case "question":
       return "Question";
     case "cluster":
-      return "Hot Subject";
+      return "Hot Topic";
     case "entity":
-      return "Entity";
+      return "Topic Page";
     case "source":
       return "Source";
     case "graph":
-      return "Graph";
+      return "Site Memory";
     case "web":
       return "Web";
     default:

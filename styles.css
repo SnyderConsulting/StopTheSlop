@@ -1113,7 +1113,8 @@ textarea {
 .chip-list,
 .entity-section-list,
 .search-retired-card,
-.signal-strip {
+.signal-strip,
+.home-example-block {
   display: grid;
   gap: 16px;
 }

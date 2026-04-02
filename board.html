@@ -6,7 +6,7 @@
   <title>Stop The Slop | Conversation</title>
   <meta
     name="description"
-    content="Continue a private grounded AI conversation while the graph updates behind the scenes."
+    content="Continue your private AI thread after sharing a question, link, screenshot, guide, or complaint about AI."
   />
   <script src="./analytics-config.js"></script>
   <script src="./analytics-bootstrap.js?v=20260327a"></script>
@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="icon" type="image/png" href="./src/StopTheSlopLogo.png" />
-  <link rel="stylesheet" href="./styles.css?v=20260402a" />
+  <link rel="stylesheet" href="./styles.css?v=20260402b" />
 </head>
 <body data-page="conversation">
   <div class="page-shell">
@@ -41,9 +41,9 @@
       <section class="page-hero">
         <div class="hero-copy">
           <p class="eyebrow">Conversation</p>
-          <h1 class="page-title">Keep talking. Keep ingesting.</h1>
+          <h1 class="page-title">Your private AI thread.</h1>
           <p class="hero-copy-text">
-            This thread is private by default. The assistant can ground on your submissions, the living graph, and the live web while it updates graph state behind the scenes.
+            Keep asking questions or adding evidence here. The assistant answers in this private thread. The public site only shows cleaned-up takeaways, not your raw submission.
           </p>
         </div>
 
@@ -70,9 +70,9 @@
           <div class="section-heading">
             <div>
               <p class="eyebrow">Thread</p>
-              <h2 id="conversation-title">Private conversation</h2>
+              <h2 id="conversation-title">Your private thread</h2>
             </div>
-            <p class="form-note" id="conversation-meta">Conversation access is managed by your account or your private manage token.</p>
+            <p class="form-note" id="conversation-meta">Only you and anyone with the private manage link can open this thread.</p>
           </div>
 
           <div class="conversation-thread" id="conversation-thread" aria-live="polite"></div>
@@ -85,7 +85,7 @@
                 name="text"
                 rows="5"
                 maxlength="6000"
-                placeholder="Ask a follow-up, add another URL, or upload more evidence."
+                placeholder="Ask a follow-up, challenge the answer, or add another link or file."
               ></textarea>
             </label>
 
@@ -127,7 +127,7 @@
       <img class="footer-logo" src="./src/StopTheSlopLogo.png" alt="Stop The Slop emblem" />
       <div>
         <strong>Stop The Slop</strong>
-        <p>The thread stays private. The graph keeps the public memory.</p>
+        <p>Private thread in. Public takeaways out.</p>
       </div>
       <div class="footer-links">
         <a href="./index.html">Home</a>
@@ -138,6 +138,6 @@
   </div>
 
   <script src="./api-config.js"></script>
-  <script src="./app.js?v=20260402a" defer></script>
+  <script src="./app.js?v=20260402b" defer></script>
 </body>
 </html>
