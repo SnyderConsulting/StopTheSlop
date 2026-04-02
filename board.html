@@ -6,7 +6,7 @@
   <title>Stop The Slop | Conversation</title>
   <meta
     name="description"
-    content="Continue your private AI thread after sharing a question, screenshot, guide, complaint, PDF, audio clip, or video about AI."
+    content="Continue your private AI thread after sharing a question, guide, complaint, benchmark, or link about AI."
   />
   <script src="./analytics-config.js"></script>
   <script src="./analytics-bootstrap.js?v=20260327a"></script>
@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="icon" type="image/png" href="./src/StopTheSlopLogo.png" />
-  <link rel="stylesheet" href="./styles.css?v=20260402c" />
+  <link rel="stylesheet" href="./styles.css?v=20260402d" />
 </head>
 <body data-page="conversation">
   <div class="page-shell">
@@ -85,13 +85,19 @@
                 name="text"
                 rows="5"
                 maxlength="6000"
-                placeholder="Ask a follow-up, challenge the answer, or add another file."
+                placeholder="Ask a follow-up, challenge the answer, or add another link."
               ></textarea>
             </label>
 
             <label class="signal-textarea">
-              <span>Uploads</span>
-              <input id="conversation-files" name="files" type="file" multiple />
+              <span>Links</span>
+              <textarea
+                id="conversation-urls"
+                name="urls"
+                rows="2"
+                maxlength="6000"
+                placeholder="https://example.com/another-source"
+              ></textarea>
             </label>
 
             <div class="form-footer">
@@ -127,6 +133,6 @@
   </div>
 
   <script src="./api-config.js"></script>
-  <script src="./app.js?v=20260402c" defer></script>
+  <script src="./app.js?v=20260402d" defer></script>
 </body>
 </html>

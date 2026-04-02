@@ -6,7 +6,7 @@
   <title>Stop The Slop | Share Something About AI</title>
   <meta
     name="description"
-    content="Ask a question about AI or share a screenshot, complaint, guide, benchmark, PDF, audio clip, or video. Stop The Slop answers and turns repeated patterns into public takeaways."
+    content="Ask a question about AI or share a complaint, guide, benchmark, or link. Stop The Slop answers and turns repeated patterns into public takeaways."
   />
   <script src="./analytics-config.js"></script>
   <script src="./analytics-bootstrap.js?v=20260327a"></script>
@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="icon" type="image/png" href="./src/StopTheSlopLogo.png" />
-  <link rel="stylesheet" href="./styles.css?v=20260402c" />
+  <link rel="stylesheet" href="./styles.css?v=20260402d" />
 </head>
 <body data-page="home">
   <div class="page-shell">
@@ -40,18 +40,18 @@
     <main class="page-stack">
       <section class="home-hero">
         <div class="home-copy">
-          <p class="eyebrow">Ask, Rant, Recommend, Upload</p>
+          <p class="eyebrow">Ask, Rant, Recommend, Link</p>
           <h1 class="hero-title">Dump anything interesting about AI.</h1>
           <p class="hero-copy-text">
-            Stop The Slop is a place to ask questions or share what happened with AI. Paste a thought, screenshot,
-            PDF, clip, or benchmark. The AI answers in a private thread, and the public site only shows cleaned-up takeaways.
+            Stop The Slop is a place to ask questions or share what happened with AI. Paste a thought,
+            add a link, or drop in a guide or benchmark. The AI answers in a private thread, and the public site only shows cleaned-up takeaways.
           </p>
 
           <div class="route-grid onboarding-grid">
             <article class="route-card">
               <span class="panel-kicker">1. Share Anything</span>
               <h2 class="ticket-title">Put AI stuff in the box</h2>
-              <p>Question, complaint, recommendation, guide, benchmark, screenshot, PDF, audio, or video.</p>
+              <p>Question, complaint, recommendation, guide, benchmark, or link.</p>
             </article>
             <article class="route-card">
               <span class="panel-kicker">2. Get An Answer</span>
@@ -69,7 +69,7 @@
             <p class="field-note">Try prompts like:</p>
             <div class="chip-list">
               <span class="list-chip">Why do people like Claude Code so much?</span>
-              <span class="list-chip">This screenshot shows Gemini hallucinating. Is that common?</span>
+              <span class="list-chip">Here’s a thread about Gemini hallucinating. Is that a common complaint?</span>
               <span class="list-chip">Here’s a good guide for agentic RAG. Add the useful parts.</span>
               <span class="list-chip">Is Kimi K2.5 actually good for writing or just coding?</span>
             </div>
@@ -134,12 +134,18 @@
             </label>
 
             <label class="signal-textarea">
-              <span>Screenshots, PDFs, audio, or video</span>
-              <input id="composer-files" name="files" type="file" multiple />
+              <span>Links to inspect</span>
+              <textarea
+                id="composer-urls"
+                name="urls"
+                rows="3"
+                maxlength="6000"
+                placeholder="https://example.com/article&#10;https://x.com/some-thread"
+              ></textarea>
             </label>
 
             <p class="field-note" id="composer-helper">
-              You can submit only text, only files, or both together.
+              You can submit only text, only links, or both together.
             </p>
 
             <div class="form-footer">
@@ -195,6 +201,6 @@
   </div>
 
   <script src="./api-config.js"></script>
-  <script src="./app.js?v=20260402c" defer></script>
+  <script src="./app.js?v=20260402d" defer></script>
 </body>
 </html>
