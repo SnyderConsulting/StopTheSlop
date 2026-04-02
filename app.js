@@ -365,25 +365,27 @@ function renderFeaturedEntities(entities) {
 
 function renderFeedCard(item) {
   const href = item.entityId ? `./wiki.html?entity=${encodeURIComponent(item.entityId)}` : "";
+  const summary = String(item.summary || "").trim();
+  const compactContext = summary && summary.length <= 56 && summary !== item.title;
   const meta = [
-    `<span class="meta-pill">${escapeHtml(formatKind(item.kind))}</span>`,
-    item.supportCount ? `<span class="meta-pill">${item.supportCount} signal${item.supportCount === 1 ? "" : "s"}</span>` : "",
-    item.updatedAt ? `<span class="meta-pill">${escapeHtml(formatDate(item.updatedAt))}</span>` : "",
+    item.supportCount ? `${item.supportCount} signal${item.supportCount === 1 ? "" : "s"}` : "",
+    item.updatedAt ? formatDate(item.updatedAt) : "",
   ]
     .filter(Boolean)
-    .join("");
+    .join(" · ");
 
   const body = `
     <span class="panel-kicker">${escapeHtml(formatKind(item.kind))}</span>
     <h3 class="ticket-title">${escapeHtml(item.title || "Untitled signal")}</h3>
-    <p>${escapeHtml(item.summary || "Fresh takeaway from the latest submissions and sources.")}</p>
-    <div class="ticket-meta">${meta}</div>
+    ${compactContext ? `<p class="feed-card-context">${escapeHtml(summary)}</p>` : ""}
+    ${summary && !compactContext ? `<p class="feed-card-summary">${escapeHtml(summary)}</p>` : '<p class="feed-card-summary">Fresh takeaway from the latest submissions and sources.</p>'}
+    ${meta ? `<div class="feed-card-meta">${escapeHtml(meta)}</div>` : ""}
   `;
 
   if (href) {
-    return `<a class="preview-card" href="${href}">${body}</a>`;
+    return `<a class="preview-card feed-card" href="${href}">${body}</a>`;
   }
-  return `<article class="preview-card">${body}</article>`;
+  return `<article class="preview-card feed-card">${body}</article>`;
 }
 
 function renderFeaturedEntityCard(entity) {

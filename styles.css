@@ -437,6 +437,56 @@ a:focus-visible {
   margin: 0;
 }
 
+.preview-card {
+  align-content: start;
+  gap: 10px;
+  padding: 18px;
+}
+
+.preview-card .ticket-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.preview-card .ticket-meta {
+  gap: 6px;
+}
+
+.preview-card .meta-pill {
+  padding: 4px 8px;
+  font-size: 0.72rem;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.feed-card-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.feed-card-context,
+.feed-card-meta {
+  margin: 0;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--text-dim);
+}
+
+.feed-card-context {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.feed-card-meta {
+  margin-top: auto;
+}
+
 .preview-section {
   display: grid;
   gap: 22px;
@@ -1275,10 +1325,26 @@ textarea {
   padding: 12px 14px;
 }
 
+.message-chip-list {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.message-chip {
+  gap: 4px;
+  padding: 10px 12px;
+}
+
 .message-chip strong {
   display: block;
   margin-bottom: 6px;
   font-size: 0.85rem;
+}
+
+.message-chip span {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .message-chip span,
