@@ -6,7 +6,7 @@
   <title>Stop The Slop | Conversation</title>
   <meta
     name="description"
-    content="Continue your private AI thread after sharing a question, link, screenshot, guide, or complaint about AI."
+    content="Continue your private AI thread after sharing a question, screenshot, guide, complaint, PDF, audio clip, or video about AI."
   />
   <script src="./analytics-config.js"></script>
   <script src="./analytics-bootstrap.js?v=20260327a"></script>
@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="icon" type="image/png" href="./src/StopTheSlopLogo.png" />
-  <link rel="stylesheet" href="./styles.css?v=20260402b" />
+  <link rel="stylesheet" href="./styles.css?v=20260402c" />
 </head>
 <body data-page="conversation">
   <div class="page-shell">
@@ -72,7 +72,7 @@
               <p class="eyebrow">Thread</p>
               <h2 id="conversation-title">Your private thread</h2>
             </div>
-            <p class="form-note" id="conversation-meta">Only you and anyone with the private manage link can open this thread.</p>
+            <p class="form-note" id="conversation-meta">Only you and anyone with the private access link can open this thread.</p>
           </div>
 
           <div class="conversation-thread" id="conversation-thread" aria-live="polite"></div>
@@ -85,18 +85,7 @@
                 name="text"
                 rows="5"
                 maxlength="6000"
-                placeholder="Ask a follow-up, challenge the answer, or add another link or file."
-              ></textarea>
-            </label>
-
-            <label class="signal-textarea">
-              <span>URLs</span>
-              <textarea
-                id="conversation-urls"
-                name="urls"
-                rows="2"
-                maxlength="6000"
-                placeholder="https://example.com/another-source"
+                placeholder="Ask a follow-up, challenge the answer, or add another file."
               ></textarea>
             </label>
 
@@ -117,7 +106,7 @@
         <aside class="ticket-inspector conversation-sidebar" id="conversation-sidebar">
           <div class="empty-state">
             <h3>No conversation loaded</h3>
-            <p>Start from the home composer or open a valid conversation link.</p>
+            <p>Start from the home composer or open an existing conversation.</p>
           </div>
         </aside>
       </section>
@@ -138,6 +127,6 @@
   </div>
 
   <script src="./api-config.js"></script>
-  <script src="./app.js?v=20260402b" defer></script>
+  <script src="./app.js?v=20260402c" defer></script>
 </body>
 </html>

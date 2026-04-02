@@ -13,7 +13,6 @@ const refs = {
   homeEntityList: document.getElementById("home-entity-list"),
   composerForm: document.getElementById("composer-form"),
   composerText: document.getElementById("composer-text"),
-  composerUrls: document.getElementById("composer-urls"),
   composerFiles: document.getElementById("composer-files"),
   composerSeed: document.getElementById("composer-seed"),
   composerSubmit: document.getElementById("composer-submit"),
@@ -23,7 +22,6 @@ const refs = {
   conversationThread: document.getElementById("conversation-thread"),
   conversationForm: document.getElementById("conversation-form"),
   conversationText: document.getElementById("conversation-text"),
-  conversationUrls: document.getElementById("conversation-urls"),
   conversationFiles: document.getElementById("conversation-files"),
   conversationSubmit: document.getElementById("conversation-submit"),
   conversationAuthNote: document.getElementById("conversation-auth-note"),
@@ -212,8 +210,8 @@ async function handleComposerSubmit(event) {
   event.preventDefault();
   if (!refs.composerForm || state.homeSubmitting) return;
 
-  if (!hasComposerContent(refs.composerForm, refs.composerText, refs.composerUrls, refs.composerFiles)) {
-    renderInlineNotice(refs.composerAuthNote, "Share text, at least one URL, or upload a file.");
+  if (!hasComposerContent(refs.composerForm, refs.composerText, refs.composerFiles)) {
+    renderInlineNotice(refs.composerAuthNote, "Share text or upload a file.");
     return;
   }
 
@@ -249,8 +247,8 @@ async function handleConversationSubmit(event) {
     return;
   }
 
-  if (!hasComposerContent(refs.conversationForm, refs.conversationText, refs.conversationUrls, refs.conversationFiles)) {
-    renderInlineNotice(refs.conversationAuthNote, "Add text, a URL, or a file before sending.");
+  if (!hasComposerContent(refs.conversationForm, refs.conversationText, refs.conversationFiles)) {
+    renderInlineNotice(refs.conversationAuthNote, "Add text or a file before sending.");
     return;
   }
 
@@ -289,9 +287,6 @@ function seedComposerExample() {
     refs.composerText.value =
       "People keep saying Claude Code is great for long coding sessions, but I keep hearing mixed things about reliability versus Cursor. What are people actually agreeing on, and what still seems disputed?";
   }
-  if (refs.composerUrls) {
-    refs.composerUrls.value = "https://www.anthropic.com/claude-code\nhttps://www.cursor.com/";
-  }
   refs.composerText?.focus();
 }
 
@@ -319,9 +314,7 @@ function renderAuthSlot() {
 }
 
 function renderAuthNotes() {
-  const uploads = Array.isArray(state.config?.acceptedUploads)
-    ? state.config.acceptedUploads.join(", ")
-    : "text, URLs, images, PDFs, audio, video";
+  const uploads = formatAcceptedInputs(state.config?.acceptedUploads);
   const note = state.session?.authenticated
     ? `Signed in as ${state.session.user.publicHandle || state.session.user.name}. Your raw submission stays private. Accepted uploads: ${uploads}.`
     : `You can post anonymously. Your raw submission stays private, and the public site only shows cleaned-up takeaways. Accepted uploads: ${uploads}.`;
@@ -336,7 +329,7 @@ function renderSignalStrip(items) {
     refs.signalStrip.innerHTML = `
       <article class="signal-strip-card">
         <span class="panel-kicker">People Are Saying</span>
-        <p>The site is ready for the next AI question, link, or screenshot.</p>
+        <p>The site is ready for the next AI question, screenshot, or file.</p>
       </article>
     `;
     return;
@@ -981,12 +974,11 @@ function setQueryParam(name, value) {
   window.history.replaceState({}, "", url.toString());
 }
 
-function hasComposerContent(form, textField, urlField, fileField) {
+function hasComposerContent(form, textField, fileField) {
   if (!form) return false;
   const text = textField?.value?.trim() || "";
-  const urls = urlField?.value?.trim() || "";
   const fileCount = fileField?.files?.length || 0;
-  return Boolean(text || urls || fileCount);
+  return Boolean(text || fileCount);
 }
 
 function setButtonBusy(button, isBusy, label) {
@@ -1011,6 +1003,30 @@ function entityStats(entity) {
     guideCount: Number(entity.guideCount || 0),
     questionCount: Number(entity.questionCount || 0),
   };
+}
+
+function formatAcceptedInputs(values) {
+  const fallback = "text, screenshots, PDFs, audio, video, files";
+  if (!Array.isArray(values) || !values.length) return fallback;
+  const labels = values
+    .filter((value) => value !== "url")
+    .map((value) => {
+      switch (value) {
+        case "image":
+          return "screenshots";
+        case "pdf":
+          return "PDFs";
+        case "audio":
+          return "audio";
+        case "video":
+          return "video";
+        case "other":
+          return "files";
+        default:
+          return value;
+      }
+    });
+  return labels.length ? labels.join(", ") : fallback;
 }
 
 function formatKind(kind) {
