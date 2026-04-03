@@ -74,6 +74,105 @@ PERPLEXITY_SEARCH_ENDPOINT = str(
 SESSION_SALT = "stoptheslop-session-v2"
 MAX_EXTRACTED_TEXT_CHARS = 18_000
 MAX_FEED_ITEMS = 24
+PUBLIC_ENTITY_CREATION_TYPES = {
+    "model",
+    "product",
+    "vendor",
+    "service",
+    "framework",
+    "dataset",
+    "concept",
+    "company",
+    "tool",
+    "topic",
+}
+AI_TOPIC_KEYWORDS = {
+    "ai",
+    "artificial intelligence",
+    "llm",
+    "model",
+    "models",
+    "reasoning",
+    "context",
+    "prompt",
+    "prompts",
+    "agent",
+    "agents",
+    "agentic",
+    "rag",
+    "retrieval",
+    "embedding",
+    "embeddings",
+    "vector",
+    "search",
+    "chatbot",
+    "assistant",
+    "copilot",
+    "deepfake",
+    "synthetic media",
+    "slop",
+    "benchmark",
+    "dataset",
+    "inference",
+    "multimodal",
+    "codegen",
+    "coding",
+}
+QUESTION_OPENERS = (
+    "how ",
+    "what ",
+    "why ",
+    "can ",
+    "should ",
+    "is ",
+    "are ",
+    "does ",
+    "do ",
+    "which ",
+    "could ",
+)
+BLOCKED_ENTITY_EXACT_NAMES = {
+    "ai",
+    "artificial intelligence",
+    "ai content",
+    "ai generated content",
+    "generated content",
+    "harmful ai content",
+    "anti immigrant material",
+    "advocacy groups",
+    "human musicians",
+    "public figures",
+    "new users",
+    "new youtube users",
+}
+BLOCKED_ENTITY_NAME_PATTERNS = (
+    re.compile(
+        r"^(new )?(users?|viewers?|people|children|kids|parents?|musicians?|artists?|journalists?|creators?|researchers?|experts?|lawmakers?|groups?|communities|public figures?)$"
+    ),
+    re.compile(r"^(the )?(song|songs|video|videos|article|articles|study|studies|report|reports|headline|headlines|story|stories|chart|charts)$"),
+)
+BLOCKED_QUESTION_PREFIXES = (
+    "why did ",
+    "what happened to ",
+    "when did ",
+    "who is ",
+    "who are ",
+    "what actions are ",
+)
+BLOCKED_QUESTION_PHRASES = {
+    "advocacy groups",
+    "human musicians",
+    "public figures",
+    "new youtube users",
+    "disappear from",
+    "removed from",
+}
+BLOCKED_CLAIM_PHRASES = {
+    "advocacy groups",
+    "human musicians",
+    "public figures",
+    "new youtube users",
+}
 
 SOURCE_PARTITION_KEY = "SOURCE"
 CONVERSATION_PARTITION_KEY = "CONVERSATION"
@@ -356,6 +455,327 @@ def dedupe_texts(items, limit: int = 12) -> list[str]:
 def normalize_for_match(value: Any) -> str:
     cleaned = re.sub(r"[^a-z0-9]+", " ", read_text(value, 300).lower()).strip()
     return re.sub(r"\s+", " ", cleaned)
+
+
+def split_words(value: Any) -> list[str]:
+    return [word for word in normalize_for_match(value).split() if word]
+
+
+def has_ai_topic_signal(value: Any) -> bool:
+    normalized = normalize_for_match(value)
+    if not normalized:
+        return False
+    return any(keyword in normalized for keyword in AI_TOPIC_KEYWORDS)
+
+
+def turn_looks_like_question(value: Any) -> bool:
+    text = read_text(value, 6000)
+    normalized = normalize_for_match(text)
+    return "?" in text or normalized.startswith(QUESTION_OPENERS)
+
+
+def is_blocked_entity_name(name: str) -> bool:
+    normalized = normalize_for_match(name)
+    if not normalized:
+        return True
+    if normalized in BLOCKED_ENTITY_EXACT_NAMES:
+        return True
+    return any(pattern.match(normalized) for pattern in BLOCKED_ENTITY_NAME_PATTERNS)
+
+
+def should_keep_entity_candidate(
+    name: str,
+    entity_type: str,
+    official_url: str = "",
+    source_blob: str = "",
+    treat_as_existing: bool = False,
+) -> bool:
+    normalized = normalize_for_match(name)
+    words = split_words(name)
+    resolved_type = read_choice(entity_type, ENTITY_TYPE_OPTIONS, "other")
+    source_match = normalized and normalized in normalize_for_match(source_blob)
+
+    if not normalized or len(words) > 6 or len(normalized) < 3:
+        return False
+    if is_blocked_entity_name(normalized):
+        return False
+    if infer_tool_family_from_name(name):
+        return True
+    if resolved_type not in PUBLIC_ENTITY_CREATION_TYPES:
+        return False
+    if resolved_type in {"concept", "topic"}:
+        return (treat_as_existing or source_match) and has_ai_topic_signal(name) and len(words) <= 4
+    return treat_as_existing or source_match or bool(read_text(official_url, 240))
+
+
+def infer_subject_names_from_text(
+    curated_entities: list[dict[str, Any]],
+    text: str,
+) -> list[str]:
+    normalized_text = normalize_for_match(text)
+    inferred: list[str] = []
+    if not normalized_text:
+        return inferred
+    for entity in curated_entities:
+        name = read_text(entity.get("canonical_name") or entity.get("canonicalName"), 120)
+        normalized_name = normalize_for_match(name)
+        if normalized_name and normalized_name in normalized_text:
+            inferred.append(name)
+    return dedupe_texts(inferred, limit=6)
+
+
+def canonicalize_subject_names(
+    subject_names: list[str],
+    curated_entities: list[dict[str, Any]],
+    fallback_text: str = "",
+) -> list[str]:
+    curated_index = {
+        normalize_for_match(item.get("canonical_name", "")): item.get("canonical_name", "")
+        for item in curated_entities
+        if normalize_for_match(item.get("canonical_name", ""))
+    }
+    canonical_subjects: list[str] = []
+    for name in dedupe_texts(subject_names, limit=6):
+        existing = find_existing_entity_by_name(name)
+        if existing:
+            canonical_subjects.append(read_text(existing.get("canonicalName"), 120))
+            continue
+        normalized = normalize_for_match(name)
+        if normalized in curated_index:
+            canonical_subjects.append(read_text(curated_index[normalized], 120))
+    if not canonical_subjects and fallback_text:
+        canonical_subjects.extend(infer_subject_names_from_text(curated_entities, fallback_text))
+    return dedupe_texts(canonical_subjects, limit=6)
+
+
+def filter_publishable_subject_names(subject_names: list[str]) -> list[str]:
+    return [
+        name
+        for name in dedupe_texts(subject_names, limit=8)
+        if not is_blocked_entity_name(name)
+    ]
+
+
+def should_keep_claim_text(claim_text: str) -> bool:
+    normalized = normalize_for_match(claim_text)
+    words = split_words(claim_text)
+    if not normalized or len(words) < 3:
+        return False
+    if claim_text.strip().endswith("?"):
+        return False
+    if normalized.startswith(("according to ", "this article ", "the article ", "the report ")):
+        return False
+    if any(phrase in normalized for phrase in BLOCKED_CLAIM_PHRASES):
+        return False
+    if re.match(r"^\d", normalized) and any(token in normalized for token in ("views", "accounts", "videos")):
+        return False
+    return True
+
+
+def should_keep_guide(title: str, summary: str, steps: list[str], subject_names: list[str]) -> bool:
+    if not subject_names:
+        return False
+    if len(split_words(title)) < 3:
+        return False
+    return bool(read_text(summary, 320) or steps[:2])
+
+
+def normalize_question_text(question_text: str) -> str:
+    text = read_text(question_text, 220)
+    if text and not text.endswith("?"):
+        text = f"{text}?"
+    return text
+
+
+def should_keep_question_text(
+    question_text: str,
+    user_turn_text: str,
+    subject_names: list[str],
+) -> bool:
+    text = normalize_question_text(question_text)
+    normalized = normalize_for_match(text)
+    words = split_words(text)
+
+    if not turn_looks_like_question(user_turn_text):
+        return False
+    if not normalized or len(words) < 3 or len(words) > 20:
+        return False
+    if normalized.startswith(BLOCKED_QUESTION_PREFIXES):
+        return False
+    if any(phrase in normalized for phrase in BLOCKED_QUESTION_PHRASES):
+        return False
+    if re.search(r"[\"“”][^\"“”]{5,}[\"“”]", text):
+        return False
+    if re.search(r"\b(19|20)\d{2}\b", normalized):
+        return False
+    if subject_names and any(is_blocked_entity_name(name) for name in subject_names):
+        return False
+    return bool(subject_names or has_ai_topic_signal(text))
+
+
+def curate_extraction_result(
+    extraction: dict[str, Any],
+    user_turn_text: str,
+    ingested_text: str,
+) -> dict[str, Any]:
+    source_blob = "\n\n".join(part for part in [user_turn_text, ingested_text] if part)
+    curated_entities: list[dict[str, Any]] = []
+    seen_entity_names: set[str] = set()
+    for item in extraction.get("entities", []):
+        canonical_name = read_text(item.get("canonical_name"), 120)
+        entity_type = read_choice(item.get("entity_type"), ENTITY_TYPE_OPTIONS, "other")
+        official_url = read_text(item.get("official_url"), 240)
+        normalized_name = normalize_for_match(canonical_name)
+        if normalized_name in seen_entity_names:
+            continue
+        if not should_keep_entity_candidate(canonical_name, entity_type, official_url, source_blob):
+            continue
+        seen_entity_names.add(normalized_name)
+        curated_entities.append(
+            {
+                "canonical_name": canonical_name,
+                "entity_type": entity_type,
+                "vendor": read_text(item.get("vendor"), 120),
+                "official_url": official_url,
+                "aliases": dedupe_texts(item.get("aliases", []), limit=10),
+                "summary": read_text(item.get("summary"), 320),
+            }
+        )
+
+    curated_claims: list[dict[str, Any]] = []
+    for item in extraction.get("claims", []):
+        claim_text = read_text(item.get("claim_text"), 280)
+        subject_names = filter_publishable_subject_names(
+            canonicalize_subject_names(
+                item.get("subject_names", []),
+                curated_entities,
+                fallback_text=claim_text,
+            )
+        )
+        if not subject_names or not should_keep_claim_text(claim_text):
+            continue
+        curated_claims.append(
+            {
+                "subject_names": subject_names,
+                "claim_text": claim_text,
+                "claim_type": read_choice(item.get("claim_type"), CLAIM_TYPE_OPTIONS, "observation"),
+                "stance": read_choice(item.get("stance"), STANCE_OPTIONS, "neutral"),
+                "tags": dedupe_texts(item.get("tags", []), limit=8),
+                "confidence": float(item.get("confidence", 0.0) or 0.0),
+            }
+        )
+
+    curated_guides: list[dict[str, Any]] = []
+    for item in extraction.get("guides", []):
+        title = read_text(item.get("title"), 160)
+        summary = read_text(item.get("summary"), 320)
+        steps = dedupe_texts(item.get("steps", []), limit=8)
+        subject_names = canonicalize_subject_names(
+            item.get("subject_names", []),
+            curated_entities,
+            fallback_text=" ".join([title, summary, " ".join(steps)]),
+        )
+        if not should_keep_guide(title, summary, steps, subject_names):
+            continue
+        curated_guides.append(
+            {
+                "title": title,
+                "summary": summary,
+                "steps": steps,
+                "subject_names": subject_names,
+            }
+        )
+
+    curated_questions: list[dict[str, Any]] = []
+    for item in extraction.get("questions", []):
+        question_text = normalize_question_text(item.get("question_text"))
+        subject_names = canonicalize_subject_names(
+            item.get("subject_names", []),
+            curated_entities,
+            fallback_text=question_text,
+        )
+        if not should_keep_question_text(question_text, user_turn_text, subject_names):
+            continue
+        curated_questions.append(
+            {
+                "question_text": question_text,
+                "subject_names": subject_names,
+                "status": read_choice(item.get("status"), QUESTION_STATUS_OPTIONS, "open"),
+            }
+        )
+
+    if turn_looks_like_question(user_turn_text) and not curated_questions:
+        fallback_question = normalize_question_text(user_turn_text)
+        fallback_subjects = infer_subject_names_from_text(curated_entities, user_turn_text)
+        if should_keep_question_text(fallback_question, user_turn_text, fallback_subjects):
+            curated_questions.append(
+                {
+                    "question_text": fallback_question,
+                    "subject_names": fallback_subjects,
+                    "status": "open",
+                }
+            )
+
+    return {
+        "moderation_action": read_choice(extraction.get("moderation_action"), MODERATION_ACTIONS, "allow"),
+        "moderation_reason": read_text(extraction.get("moderation_reason"), 220),
+        "conversation_title": read_text(extraction.get("conversation_title"), 120)
+        or build_conversation_title(user_turn_text or ingested_text),
+        "query_text": read_text(extraction.get("query_text"), 180)
+        or read_text(user_turn_text, 180)
+        or read_text(ingested_text, 180),
+        "summary": read_text(extraction.get("summary"), 500)
+        or read_text(user_turn_text, 500)
+        or read_text(ingested_text, 500),
+        "entities": curated_entities[:8],
+        "claims": curated_claims[:12],
+        "guides": curated_guides[:6],
+        "questions": curated_questions[:4],
+    }
+
+
+def is_publishable_question_record(question: dict[str, Any]) -> bool:
+    return should_keep_question_text(
+        question.get("questionText", ""),
+        question.get("questionText", ""),
+        question.get("subjectNames", []),
+    )
+
+
+def is_publishable_claim_record(claim: dict[str, Any]) -> bool:
+    subject_names = filter_publishable_subject_names(claim.get("subjectNames", []))
+    return should_keep_claim_text(claim.get("claimText", "")) and bool(
+        subject_names or has_ai_topic_signal(claim.get("claimText", ""))
+    )
+
+
+def is_publishable_entity_record(entity: dict[str, Any]) -> bool:
+    if should_keep_entity_candidate(
+        entity.get("canonicalName", ""),
+        entity.get("entityType", "other"),
+        entity.get("officialUrl", ""),
+        source_blob=entity.get("summary", "") or entity.get("description", ""),
+        treat_as_existing=True,
+    ):
+        return True
+
+    name = read_text(entity.get("canonicalName"), 120)
+    words = split_words(name)
+    stats = entity.get("stats", {}) or {}
+    total_signal = sum(
+        int(stats.get(key, 0) or 0)
+        for key in ("sourceCount", "claimCount", "guideCount", "questionCount")
+    )
+    if is_blocked_entity_name(name) or not name or len(words) > 4:
+        return False
+    if total_signal < 2:
+        return False
+    return bool(
+        read_text(entity.get("officialUrl"), 240)
+        or read_text(entity.get("vendor"), 120)
+        or has_ai_topic_signal(name)
+        or any(character.isupper() for character in name)
+    )
 
 
 def slugify(value: Any) -> str:
@@ -1353,7 +1773,8 @@ def call_ai_json(messages: list[dict[str, Any]], schema: dict[str, Any], max_tok
 
 
 def extract_submission_signals(
-    turn_text: str,
+    user_turn_text: str,
+    ingested_text: str,
     source_previews: list[dict[str, Any]],
     recent_messages: list[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -1371,9 +1792,9 @@ def extract_submission_signals(
     fallback = {
         "moderation_action": "allow",
         "moderation_reason": "",
-        "conversation_title": build_conversation_title(turn_text),
-        "query_text": read_text(turn_text, 160),
-        "summary": read_text(turn_text, 500),
+        "conversation_title": build_conversation_title(user_turn_text or ingested_text),
+        "query_text": read_text(user_turn_text, 160) or read_text(ingested_text, 160),
+        "summary": read_text(user_turn_text, 500) or read_text(ingested_text, 500),
         "entities": [],
         "claims": [],
         "guides": [],
@@ -1381,26 +1802,26 @@ def extract_submission_signals(
     }
 
     if not can_use_ai():
-        if "?" in turn_text:
+        if turn_looks_like_question(user_turn_text):
             fallback["questions"] = [
                 {
-                    "question_text": read_text(turn_text, 220),
+                    "question_text": normalize_question_text(user_turn_text),
                     "subject_names": [],
                     "status": "open",
                 }
             ]
-        elif turn_text:
+        elif user_turn_text or ingested_text:
             fallback["claims"] = [
                 {
                     "subject_names": [],
-                    "claim_text": read_text(turn_text, 260),
+                    "claim_text": read_text(user_turn_text or ingested_text, 260),
                     "claim_type": "observation",
                     "stance": "neutral",
                     "tags": [],
                     "confidence": 0.25,
                 }
             ]
-        return fallback
+        return curate_extraction_result(fallback, user_turn_text, ingested_text)
 
     messages = [
         {
@@ -1410,14 +1831,20 @@ def extract_submission_signals(
                 "Moderate the content first. The raw submission will remain private, but public graph artifacts may be derived from it. "
                 "Reject doxxing, credentials, private documents, and clearly abusive or unsafe material. "
                 "If the submission is acceptable but contains sensitive details, choose redact. "
-                "Then extract entities, claims, guides, and questions grounded strictly in the supplied material."
+                "Then extract only durable public knowledge grounded strictly in the supplied material. "
+                "Prefer concise claims, reusable guides, and broad user questions over one-off article trivia. "
+                "Only create entities for meaningful AI products, models, companies, tools, or durable AI topics. "
+                "Do not create entities for generic actor groups, song titles, article subjects, or ephemeral people. "
+                "Only return questions if the user is actually asking one and the question is reusable beyond this single source. "
+                "When in doubt, return fewer entities and fewer questions."
             ),
         },
         {
             "role": "user",
             "content": json.dumps(
                 {
-                    "turnText": read_text(turn_text, 4000),
+                    "userTurnText": read_text(user_turn_text, 4000),
+                    "ingestedText": read_text(ingested_text, 6000),
                     "sourcePreviews": normalized_preview,
                     "recentMessages": [
                         {"role": item.get("role", ""), "text": read_text(item.get("text"), 1000)}
@@ -1430,9 +1857,9 @@ def extract_submission_signals(
     ]
     data = call_ai_json(messages, INTAKE_SCHEMA, max_tokens=1400)
     if not data:
-        return fallback
+        return curate_extraction_result(fallback, user_turn_text, ingested_text)
 
-    return {
+    normalized = {
         "moderation_action": read_choice(data.get("moderation_action"), MODERATION_ACTIONS, "allow"),
         "moderation_reason": read_text(data.get("moderation_reason"), 220),
         "conversation_title": read_text(data.get("conversation_title"), 120) or fallback["conversation_title"],
@@ -1482,6 +1909,7 @@ def extract_submission_signals(
             if read_text(item.get("question_text"), 220)
         ],
     }
+    return curate_extraction_result(normalized, user_turn_text, ingested_text)
 
 
 def search_live_web_results(query_text: str, max_results: int = 4) -> list[dict[str, Any]]:
@@ -1543,9 +1971,17 @@ def score_text_match(blob: str, query: str) -> float:
 
 def search_graph_context(query_text: str) -> dict[str, list[dict[str, Any]]]:
     entities = list_entities()
-    claims = [table_to_claim_record(row) for row in list_rows(CLAIM_PARTITION_KEY)]
+    claims = [
+        table_to_claim_record(row)
+        for row in list_rows(CLAIM_PARTITION_KEY)
+        if is_publishable_claim_record(table_to_claim_record(row))
+    ]
     guides = [table_to_guide_record(row) for row in list_rows(GUIDE_PARTITION_KEY)]
-    questions = [table_to_question_record(row) for row in list_rows(QUESTION_PARTITION_KEY)]
+    questions = [
+        table_to_question_record(row)
+        for row in list_rows(QUESTION_PARTITION_KEY)
+        if is_publishable_question_record(table_to_question_record(row))
+    ]
 
     ranked_entities = sorted(
         entities,
@@ -1938,6 +2374,8 @@ def resolve_subject_entities(
             resolved.append(existing)
             continue
 
+        if not should_keep_entity_candidate(name, "other"):
+            continue
         candidate = infer_entity_record_from_name(name)
         candidate["stats"] = {"sourceCount": 1, "claimCount": 0, "guideCount": 0, "questionCount": 0}
         resolved.append(upsert_entity_record(candidate))
@@ -1951,7 +2389,7 @@ def build_graph_updates(
     questions: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     updates: list[dict[str, Any]] = []
-    for entity in entities[:4]:
+    for entity in [item for item in entities if is_publishable_entity_record(item)][:4]:
         updates.append(
             {
                 "kind": "entity",
@@ -1959,12 +2397,12 @@ def build_graph_updates(
                 "summary": entity.get("summary", "") or entity.get("description", ""),
             }
         )
-    for claim in claims[:4]:
+    for claim in [item for item in claims if is_publishable_claim_record(item)][:4]:
         updates.append(
             {
                 "kind": "claim",
                 "title": claim.get("claimText", ""),
-                "summary": ", ".join(claim.get("subjectNames", [])),
+                "summary": ", ".join(filter_publishable_subject_names(claim.get("subjectNames", []))),
             }
         )
     for guide in guides[:3]:
@@ -1975,7 +2413,7 @@ def build_graph_updates(
                 "summary": guide.get("summary", ""),
             }
         )
-    for question in questions[:3]:
+    for question in [item for item in questions if is_publishable_question_record(item)][:3]:
         updates.append(
             {
                 "kind": "question",
@@ -2216,10 +2654,10 @@ def derive_cluster_items(claims: list[dict[str, Any]], entities_by_id: dict[str,
 
 def build_feed() -> dict[str, Any]:
     ensure_legacy_graph_migration()
-    entities = list_entities()
-    claims = list_claims()
+    entities = [entity for entity in list_entities() if is_publishable_entity_record(entity)]
+    claims = [claim for claim in list_claims() if is_publishable_claim_record(claim)]
     guides = list_guides()
-    questions = list_questions()
+    questions = [question for question in list_questions() if is_publishable_question_record(question)]
     entities_by_id = {entity["id"]: entity for entity in entities}
 
     claim_items = [
@@ -2227,7 +2665,7 @@ def build_feed() -> dict[str, Any]:
             "id": claim["id"],
             "kind": "claim",
             "title": claim.get("claimText", ""),
-            "summary": ", ".join(claim.get("subjectNames", [])),
+            "summary": ", ".join(filter_publishable_subject_names(claim.get("subjectNames", []))),
             "entityId": read_text((claim.get("subjectEntityIds") or [""])[0], 120),
             "supportCount": int(claim.get("supportCount", 0)),
             "updatedAt": claim.get("updatedAt", ""),
@@ -2302,10 +2740,14 @@ def build_entity_detail(entity_id: str) -> dict[str, Any] | None:
     if not entity:
         return None
 
+    if not is_publishable_entity_record(entity):
+        return None
+
     claims = [
         claim
         for claim in list_claims()
         if entity_id in claim.get("subjectEntityIds", [])
+        and is_publishable_claim_record(claim)
     ]
     guides = [
         guide
@@ -2316,6 +2758,7 @@ def build_entity_detail(entity_id: str) -> dict[str, Any] | None:
         question
         for question in list_questions()
         if entity_id in question.get("subjectEntityIds", [])
+        and is_publishable_question_record(question)
     ]
     related_entity_ids: set[str] = set()
     for claim in claims[:12]:
@@ -2323,7 +2766,7 @@ def build_entity_detail(entity_id: str) -> dict[str, Any] | None:
             if related_id and related_id != entity_id:
                 related_entity_ids.add(related_id)
     related_entities = [get_entity_record(related_id) for related_id in sorted(related_entity_ids)]
-    related_entities = [entity for entity in related_entities if entity]
+    related_entities = [entity for entity in related_entities if entity and is_publishable_entity_record(entity)]
 
     return {
         **entity,
@@ -2337,7 +2780,7 @@ def build_entity_detail(entity_id: str) -> dict[str, Any] | None:
 
 def search_entities(query_text: str) -> list[dict[str, Any]]:
     query = read_text(query_text, 180)
-    entities = list_entities()
+    entities = [entity for entity in list_entities() if is_publishable_entity_record(entity)]
     if not query:
         return entities
     scored = []
@@ -2536,7 +2979,12 @@ def submit_turn(forced_conversation_id: str = "") -> tuple[dict[str, Any], int]:
     ) or read_text(combined_text, 4000)
     persist_message(conversation_id, "user", user_message_text, source_ids, [], [], [])
 
-    extraction = extract_submission_signals(combined_text or user_message_text, source_records, recent_messages)
+    extraction = extract_submission_signals(
+        text,
+        combined_text or user_message_text,
+        source_records,
+        recent_messages,
+    )
     if extraction["moderation_action"] == "reject":
         reply_text = extraction.get("moderation_reason") or "I stored the submission privately, but I cannot derive public knowledge from it."
         conversation = create_or_update_conversation(
@@ -2568,17 +3016,12 @@ def submit_turn(forced_conversation_id: str = "") -> tuple[dict[str, Any], int]:
         candidate["stats"] = {"sourceCount": 1, "claimCount": 0, "guideCount": 0, "questionCount": 0}
         extracted_entities.append(upsert_entity_record(candidate))
 
-    resolved_by_name = {
-        normalize_for_match(entity.get("canonicalName", "")): entity for entity in extracted_entities
-    }
     claims_created: list[dict[str, Any]] = []
     guides_created: list[dict[str, Any]] = []
     questions_created: list[dict[str, Any]] = []
 
     for claim in extraction.get("claims", []):
         subjects = resolve_subject_entities(extraction.get("entities", []), claim.get("subject_names", []))
-        if not subjects and extracted_entities:
-            subjects = extracted_entities[:1]
         if not subjects:
             continue
         created = upsert_claim(
@@ -2595,8 +3038,6 @@ def submit_turn(forced_conversation_id: str = "") -> tuple[dict[str, Any], int]:
 
     for guide in extraction.get("guides", []):
         subjects = resolve_subject_entities(extraction.get("entities", []), guide.get("subject_names", []))
-        if not subjects and extracted_entities:
-            subjects = extracted_entities[:1]
         if not subjects:
             continue
         created = upsert_guide(
@@ -2741,7 +3182,7 @@ def get_feed():
 def get_entities():
     ensure_legacy_graph_migration()
     query = read_text(request.args.get("q"), 180)
-    return jsonify(search_entities(query) if query else list_entities())
+    return jsonify(search_entities(query))
 
 
 @app.get("/api/entities/<entity_id>")
