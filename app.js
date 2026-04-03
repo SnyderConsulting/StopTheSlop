@@ -3,6 +3,9 @@ const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
 const DEFAULT_MCP_BASE_URL = "";
 const SESSION_STORAGE_KEY = "sts_session_token";
 const CONVERSATION_TOKEN_STORAGE_KEY = "sts_conversation_tokens_v1";
+const ONBOARDING_STORAGE_KEY = "sts_onboarding_v1";
+const VISITOR_STORAGE_KEY = "sts_visitor_id_v1";
+const ONBOARDING_SURVEY_VERSION = "20260403a";
 
 const refs = {
   authSlot: document.getElementById("auth-slot"),
@@ -57,11 +60,26 @@ const state = {
   entitySearchTimer: 0,
   entities: [],
   selectedEntityId: "",
+  booted: false,
+  onboardingSubmitting: false,
 };
 
 void init();
 
 async function init() {
+  if (shouldRequireOnboarding()) {
+    renderOnboardingGate();
+    wireOnboardingGate();
+    return;
+  }
+
+  await bootApp();
+}
+
+async function bootApp() {
+  if (state.booted) return;
+  state.booted = true;
+
   renderAuthSlot();
 
   const configPromise = fetchConfigSafe();
@@ -100,6 +118,135 @@ async function init() {
   if (PAGE === "feedback" || PAGE === "compat") {
     return;
   }
+}
+
+function shouldRequireOnboarding() {
+  const onboarding = readOnboardingState();
+  return onboarding.surveyVersion !== ONBOARDING_SURVEY_VERSION || !onboarding.completedAt;
+}
+
+function renderOnboardingGate() {
+  if (document.getElementById("onboarding-gate")) return;
+  document.body.classList.add("is-onboarding-locked");
+  const gate = document.createElement("section");
+  gate.id = "onboarding-gate";
+  gate.className = "onboarding-gate";
+  gate.innerHTML = `
+    <div class="onboarding-shell">
+      <div class="onboarding-copy">
+        <p class="eyebrow">Before You Continue</p>
+        <h1>Help define what Stop The Slop should be.</h1>
+        <p class="hero-copy-text">
+          We are still figuring out who this product is for and what it should actually do. Answer these questions once
+          to unlock the site. No account required.
+        </p>
+      </div>
+
+      <form class="composer-form onboarding-form" id="onboarding-form">
+        <label class="signal-textarea onboarding-field">
+          <span>How do you mostly use AI right now?</span>
+          <select name="aiUseCase" required>
+            <option value="">Choose one</option>
+            <option value="coding">Coding or debugging</option>
+            <option value="research">Research or analysis</option>
+            <option value="writing">Writing or editing</option>
+            <option value="media">Images, audio, or video</option>
+            <option value="ops">Operations, support, or admin work</option>
+            <option value="other">Something else</option>
+          </select>
+        </label>
+
+        <label class="signal-textarea onboarding-field">
+          <span>What does "AI slop" mean to you?</span>
+          <textarea
+            name="slopMeaning"
+            rows="5"
+            maxlength="2400"
+            minlength="16"
+            placeholder="Example: low-effort AI output that wastes time, hides the original source, or makes it harder to tell what is trustworthy."
+            required
+          ></textarea>
+        </label>
+
+        <label class="signal-textarea onboarding-field">
+          <span>If Stop The Slop were worth coming back to, what would it help you do?</span>
+          <textarea
+            name="desiredProduct"
+            rows="5"
+            maxlength="2400"
+            minlength="16"
+            placeholder="Example: quickly check whether a tool is drifting, compare what serious users think, or find reliable workflows for a specific job."
+            required
+          ></textarea>
+        </label>
+
+        <div class="form-footer onboarding-footer">
+          <p class="field-note" data-onboarding-status>
+            Required once per browser. Your answers help shape the product direction.
+          </p>
+          <div class="form-actions">
+            <button class="button primary" type="submit" data-onboarding-submit>Continue To Site</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  `;
+  document.body.prepend(gate);
+}
+
+function wireOnboardingGate() {
+  const form = document.getElementById("onboarding-form");
+  form?.addEventListener("submit", handleOnboardingSubmit);
+}
+
+async function handleOnboardingSubmit(event) {
+  event.preventDefault();
+  if (state.onboardingSubmitting) return;
+
+  const form = event.currentTarget;
+  const status = form.querySelector("[data-onboarding-status]");
+  const submitButton = form.querySelector("[data-onboarding-submit]");
+  const formData = new FormData(form);
+
+  state.onboardingSubmitting = true;
+  if (status) {
+    status.textContent = "Saving your answers and opening the site...";
+  }
+  setButtonBusy(submitButton, true, "Opening...");
+
+  try {
+    const response = await apiFetch("/api/onboarding", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        visitorId: readOrCreateVisitorId(),
+        surveyVersion: ONBOARDING_SURVEY_VERSION,
+        aiUseCase: String(formData.get("aiUseCase") || ""),
+        slopMeaning: String(formData.get("slopMeaning") || ""),
+        desiredProduct: String(formData.get("desiredProduct") || ""),
+        entryPath: `${window.location.pathname}${window.location.search}`,
+        referrer: document.referrer || "",
+      }),
+    });
+
+    storeOnboardingState(response);
+    await bootApp();
+    unlockOnboardingGate();
+  } catch (error) {
+    if (status) {
+      status.textContent = error.message || "Could not save your answers. Try again.";
+    }
+  } finally {
+    state.onboardingSubmitting = false;
+    setButtonBusy(submitButton, false, "Continue To Site");
+  }
+}
+
+function unlockOnboardingGate() {
+  document.body.classList.remove("is-onboarding-locked");
+  document.getElementById("onboarding-gate")?.remove();
 }
 
 function wireHomePage() {
@@ -1152,6 +1299,48 @@ function readStoredSessionToken() {
   } catch (_error) {
     return "";
   }
+}
+
+function readOnboardingState() {
+  try {
+    return JSON.parse(window.localStorage.getItem(ONBOARDING_STORAGE_KEY) || "{}");
+  } catch (_error) {
+    return {};
+  }
+}
+
+function storeOnboardingState(payload) {
+  try {
+    window.localStorage.setItem(
+      ONBOARDING_STORAGE_KEY,
+      JSON.stringify({
+        visitorId: payload?.visitorId || readOrCreateVisitorId(),
+        completedAt: payload?.completedAt || new Date().toISOString(),
+        surveyVersion: payload?.surveyVersion || ONBOARDING_SURVEY_VERSION,
+      })
+    );
+  } catch (_error) {
+    // Ignore storage failures. The response was still captured server-side.
+  }
+}
+
+function readOrCreateVisitorId() {
+  try {
+    const existing = window.localStorage.getItem(VISITOR_STORAGE_KEY) || "";
+    if (existing) return existing;
+    const created = buildVisitorId();
+    window.localStorage.setItem(VISITOR_STORAGE_KEY, created);
+    return created;
+  } catch (_error) {
+    return buildVisitorId();
+  }
+}
+
+function buildVisitorId() {
+  if (window.crypto?.randomUUID) {
+    return `visitor-${window.crypto.randomUUID()}`;
+  }
+  return `visitor-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
 }
 
 function readConversationTokens() {

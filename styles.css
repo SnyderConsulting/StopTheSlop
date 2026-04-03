@@ -37,6 +37,10 @@ body {
     linear-gradient(180deg, #040606 0%, #08100c 48%, #040606 100%);
 }
 
+body.is-onboarding-locked {
+  overflow: hidden;
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -73,6 +77,71 @@ a:focus-visible {
   margin: 0 auto;
   padding: 18px 0 48px;
   position: relative;
+}
+
+.is-onboarding-locked .page-shell {
+  visibility: hidden;
+}
+
+.onboarding-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top, rgba(118, 223, 131, 0.18), transparent 28%),
+    linear-gradient(180deg, rgba(4, 6, 6, 0.98), rgba(4, 6, 6, 0.995));
+}
+
+.onboarding-shell {
+  width: min(820px, 100%);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xl);
+  padding: 30px;
+  background: linear-gradient(180deg, rgba(9, 13, 11, 0.98), rgba(7, 10, 9, 0.96));
+  box-shadow: var(--shadow);
+}
+
+.onboarding-copy {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.onboarding-copy h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4.3vw, 3.4rem);
+  line-height: 0.98;
+  max-width: 12ch;
+}
+
+.onboarding-form {
+  gap: 18px;
+}
+
+.onboarding-field {
+  gap: 10px;
+}
+
+.onboarding-field select,
+.onboarding-field textarea {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  padding: 16px 18px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.onboarding-field select {
+  min-height: 58px;
+  appearance: none;
+}
+
+.onboarding-footer {
+  align-items: flex-end;
 }
 
 .bg-grid {

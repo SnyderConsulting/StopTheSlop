@@ -184,6 +184,7 @@ ENTITY_PARTITION_KEY = "ENTITY"
 USER_PARTITION_KEY = "USER"
 META_PARTITION_KEY = "META"
 LEGACY_TICKET_PARTITION_KEY = "TICKET"
+ONBOARDING_PARTITION_KEY = "ONBOARDING"
 
 ENTITY_TYPE_OPTIONS = {
     "model",
@@ -213,6 +214,14 @@ STANCE_OPTIONS = {"positive", "negative", "neutral", "mixed"}
 MODERATION_ACTIONS = {"allow", "redact", "reject"}
 QUESTION_STATUS_OPTIONS = {"open", "answered"}
 PUBLIC_ITEM_KINDS = {"claim", "guide", "question", "cluster", "entity"}
+ONBOARDING_USE_CASE_OPTIONS = {
+    "coding",
+    "research",
+    "writing",
+    "media",
+    "ops",
+    "other",
+}
 
 TOOL_FAMILY_METADATA = {
     "chatgpt": {
@@ -1190,6 +1199,83 @@ def get_row(partition_key: str, row_key: str) -> dict[str, Any] | None:
 
 def upsert_row(entity: dict[str, Any]) -> None:
     get_table_client().upsert_entity(mode=UpdateMode.REPLACE, entity=entity)
+
+
+def read_request_ip() -> str:
+    for candidate in (
+        request.headers.get("CF-Connecting-IP"),
+        request.headers.get("X-Forwarded-For"),
+        request.remote_addr,
+    ):
+        value = read_text(candidate, 160)
+        if not value:
+            continue
+        return read_text(value.split(",", 1)[0], 120)
+    return ""
+
+
+def onboarding_record_to_table(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "PartitionKey": ONBOARDING_PARTITION_KEY,
+        "RowKey": record["visitorId"],
+        "surveyVersion": record.get("surveyVersion", "20260403a"),
+        "aiUseCase": record.get("aiUseCase", ""),
+        "slopMeaning": record.get("slopMeaning", ""),
+        "desiredProduct": record.get("desiredProduct", ""),
+        "entryPath": record.get("entryPath", ""),
+        "referrer": record.get("referrer", ""),
+        "userId": record.get("userId", ""),
+        "clientIpHash": record.get("clientIpHash", ""),
+        "userAgent": record.get("userAgent", ""),
+        "createdAt": record.get("createdAt", now_iso()),
+        "updatedAt": record.get("updatedAt", now_iso()),
+    }
+
+
+def persist_onboarding_response() -> dict[str, Any]:
+    payload = request.get_json(silent=True) or {}
+    visitor_id = read_text(payload.get("visitorId"), 120)
+    ai_use_case = read_choice(payload.get("aiUseCase"), ONBOARDING_USE_CASE_OPTIONS, "")
+    slop_meaning = read_text(payload.get("slopMeaning"), 2400)
+    desired_product = read_text(payload.get("desiredProduct"), 2400)
+    entry_path = read_text(payload.get("entryPath"), 200)
+    referrer = read_text(payload.get("referrer"), 500)
+    survey_version = read_text(payload.get("surveyVersion"), 40) or "20260403a"
+    user = get_authenticated_user()
+    client_ip = read_request_ip()
+
+    if not visitor_id:
+        raise ValueError("Missing visitor id.")
+    if not ai_use_case:
+        raise ValueError("Choose how you mostly use AI.")
+    if len(slop_meaning) < 16:
+        raise ValueError('Explain what "AI slop" means to you in a bit more detail.')
+    if len(desired_product) < 16:
+        raise ValueError("Explain what you would want from Stop The Slop in a bit more detail.")
+
+    existing = get_row(ONBOARDING_PARTITION_KEY, visitor_id) or {}
+    now = now_iso()
+    record = {
+        "visitorId": visitor_id,
+        "surveyVersion": survey_version,
+        "aiUseCase": ai_use_case,
+        "slopMeaning": slop_meaning,
+        "desiredProduct": desired_product,
+        "entryPath": entry_path,
+        "referrer": referrer,
+        "userId": read_text((user or {}).get("id"), 120),
+        "clientIpHash": hash_token(client_ip) if client_ip else "",
+        "userAgent": read_text(request.headers.get("User-Agent"), 280),
+        "createdAt": existing.get("createdAt", now),
+        "updatedAt": now,
+    }
+    upsert_row(onboarding_record_to_table(record))
+    return {
+        "ok": True,
+        "visitorId": visitor_id,
+        "surveyVersion": survey_version,
+        "completedAt": now,
+    }
 
 
 def build_entity_description(canonical_name: str, entity_type: str, vendor: str) -> str:
@@ -3144,6 +3230,7 @@ def get_config():
             "authEnabled": auth_is_enabled(),
             "googleClientId": get_google_client_id(),
             "anonymousPosting": True,
+            "requiredOnboarding": True,
             "acceptedUploads": ["text", "url", "image", "pdf", "audio", "video", "other"],
         }
     )
@@ -3159,6 +3246,11 @@ def get_auth_session():
         return jsonify({"authenticated": False, "authEnabled": True, "user": None})
 
     return jsonify({"authenticated": True, "authEnabled": True, "user": build_public_user(user)})
+
+
+@app.post("/api/onboarding")
+def submit_onboarding():
+    return jsonify(persist_onboarding_response()), 201
 
 
 @app.post("/api/auth/google")
