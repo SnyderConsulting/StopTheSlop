@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Stop The Slop | Share Something About AI</title>
+  <title>Stop The Slop | Public Memory for Real-World AI Behavior</title>
   <meta
     name="description"
-    content="Ask a question about AI or share what happened. Stop The Slop answers in a private thread and turns repeated patterns into public takeaways."
+    content="Share anything about AI. Stop The Slop answers in a private thread and turns repeated patterns into public memory about what tools are good at, bad at, and disputed on."
   />
   <script src="./analytics-config.js"></script>
   <script src="./analytics-bootstrap.js?v=20260327a"></script>
@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="icon" type="image/png" href="./src/StopTheSlopLogo.png" />
-  <link rel="stylesheet" href="./styles.css?v=20260402g" />
+  <link rel="stylesheet" href="./styles.css?v=20260403a" />
 </head>
 <body data-page="home">
   <div class="page-shell">
@@ -34,7 +34,7 @@
       </nav>
       <div class="topbar-actions">
         <div class="auth-slot" id="auth-slot"></div>
-        <a class="button ghost" href="./wiki.html">Browse Takeaways</a>
+        <a class="button ghost" href="./wiki.html">Browse Memory</a>
       </div>
     </header>
 
@@ -42,11 +42,12 @@
       <section class="home-hero chat-first-hero">
         <section class="home-intake-panel chat-first-panel" id="intake">
           <div class="chat-hero-copy">
-            <p class="eyebrow">One Box</p>
-            <h1 class="hero-title">What happened with AI?</h1>
+            <p class="eyebrow">Public Memory</p>
+            <h1 class="hero-title">Real-world memory for AI behavior.</h1>
             <p class="hero-copy-text">
-              Ask a question, rant about a failure, recommend a tool, or paste a guide. Just type into the box. If your
-              message includes a URL, the backend will inspect it automatically.
+              Ask a question, describe a failure, recommend a tool, or paste a workflow. The assistant answers in a
+              private thread. The public site only shows derived memory about what tools are good at, bad at, and still
+              disputed on.
             </p>
           </div>
 
@@ -60,18 +61,18 @@
               <strong class="mini-metric-value" id="metric-tools">—</strong>
             </div>
             <div class="mini-metric">
-              <span class="status-label">Claims</span>
+              <span class="status-label">Takeaways</span>
               <strong class="mini-metric-value" id="metric-modalities">—</strong>
             </div>
           </div>
 
           <div class="section-heading">
             <div>
-              <p class="eyebrow">Chat</p>
-              <h2>Tell it what happened or what you want to know</h2>
+              <p class="eyebrow">Private Intake</p>
+              <h2>Start with one message</h2>
             </div>
             <p class="form-note">
-              One message is enough to start.
+              One message is enough to open a private thread and start shaping public memory.
             </p>
           </div>
 
@@ -88,7 +89,7 @@
             </label>
 
             <p class="field-note" id="composer-helper">
-              Paste text only. If there is a URL in your message, the backend will pick it up automatically.
+              Paste text only. If there is a URL in your message, the backend will inspect it automatically.
             </p>
 
             <div class="form-footer">
@@ -102,11 +103,11 @@
 
           <div class="home-example-block">
             <p class="field-note">Try prompts like:</p>
-            <div class="chip-list home-prompt-chips">
-              <span class="list-chip">Why do people like Claude Code so much?</span>
-              <span class="list-chip">Gemini hallucinated again. Is that common?</span>
-              <span class="list-chip">Here’s a good guide for agentic RAG. Add the useful parts.</span>
-              <span class="list-chip">Is Kimi K2.5 actually good for writing or just coding?</span>
+            <div class="chip-list home-prompt-chips" id="home-prompt-chips">
+              <button class="list-chip prompt-chip" type="button" data-prompt="Claude Code feels great until it gets lost in a long repo. Is that a common pattern or just me?">Claude Code feels great until it gets lost in a long repo.</button>
+              <button class="list-chip prompt-chip" type="button" data-prompt="Gemini contradicted itself twice today. Is that a known pattern people keep seeing?">Gemini contradicted itself twice today.</button>
+              <button class="list-chip prompt-chip" type="button" data-prompt="Here is a guide for agentic RAG. What parts are worth keeping in the public memory?">Here is a guide for agentic RAG. What should the public memory keep?</button>
+              <button class="list-chip prompt-chip" type="button" data-prompt="People keep hyping Kimi K2.5. What is it actually good at and where are opinions still mixed?">What is Kimi K2.5 actually good at?</button>
             </div>
           </div>
         </section>
@@ -115,25 +116,113 @@
       <section class="preview-section">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">Public Takeaways</p>
-            <h2>What people are learning right now</h2>
+            <p class="eyebrow">How It Works</p>
+            <h2>Private threads become public memory</h2>
           </div>
           <p class="form-note">
-            The site publishes summaries, claims, guides, and hot topics here. It does not publish raw user posts.
+            Raw submissions stay private. The public product is the distilled memory that keeps surviving repeated evidence.
           </p>
-          <a class="button ghost inline-button" href="./wiki.html">Browse Wiki</a>
         </div>
-        <div class="preview-grid" id="home-feed" aria-live="polite"></div>
+        <div class="memory-proof-grid">
+          <article class="memory-proof-card">
+            <span class="panel-kicker">1. You Share</span>
+            <h3 class="ticket-title">Anything about AI</h3>
+            <p>Ask a question, describe a failure, recommend a workflow, or paste a URL into the main message.</p>
+          </article>
+          <article class="memory-proof-card">
+            <span class="panel-kicker">2. The AI Answers</span>
+            <h3 class="ticket-title">Private, grounded reply</h3>
+            <p>Your thread stays private while the assistant grounds on your message, the site’s memory, and the live web.</p>
+          </article>
+          <article class="memory-proof-card">
+            <span class="panel-kicker">3. Patterns Get Distilled</span>
+            <h3 class="ticket-title">Claims, guides, and questions</h3>
+            <p>The system extracts durable takeaways instead of publishing raw posts or one-off headline trivia.</p>
+          </article>
+          <article class="memory-proof-card">
+            <span class="panel-kicker">4. Public Memory Updates</span>
+            <h3 class="ticket-title">Topic pages keep getting sharper</h3>
+            <p>Tools and subjects accumulate a visible memory of what people think they are good at, bad at, and split on.</p>
+          </article>
+        </div>
+        <article class="memory-example-card">
+          <div class="memory-example-copy">
+            <span class="panel-kicker">Example Flow</span>
+            <h3 class="ticket-title">A complaint turns into reusable memory</h3>
+            <p>
+              Someone asks whether Claude Code is reliable over longer agentic loops. The private answer can cite fresh
+              evidence, while the public site can update the Claude Code page with claims like “great for long coding
+              sessions” and “reliability versus Cursor is still disputed.”
+            </p>
+          </div>
+          <div class="memory-example-steps">
+            <div class="memory-example-step">
+              <span class="status-label">Input</span>
+              <p>“Claude Code feels great until it gets lost in a long repo. Is that a common complaint?”</p>
+            </div>
+            <div class="memory-example-step">
+              <span class="status-label">Private Answer</span>
+              <p>Grounded summary of where people agree, where they disagree, and what evidence is freshest.</p>
+            </div>
+            <div class="memory-example-step">
+              <span class="status-label">Public Artifact</span>
+              <p>Updated topic page, stronger claim support, and a reusable open question if consensus is still weak.</p>
+            </div>
+          </div>
+        </article>
       </section>
 
       <section class="preview-section">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">Tracked Topics</p>
-            <h2>Tools, models, and subjects people keep bringing up</h2>
+            <p class="eyebrow">What People Are Noticing</p>
+            <h2>Claims, disagreements, and hot subjects</h2>
           </div>
+          <p class="form-note">
+            The homepage should read like a public reality check, not a message board.
+          </p>
+          <a class="button ghost inline-button" href="./wiki.html">Browse Wiki</a>
         </div>
-        <div class="preview-grid" id="home-entity-list" aria-live="polite"></div>
+        <div class="preview-grid" id="home-noticing" aria-live="polite"></div>
+      </section>
+
+      <section class="preview-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Topic Pages</p>
+            <h2>Tools, models, and subjects people keep checking</h2>
+          </div>
+          <p class="form-note">
+            Open any topic page to see what the community memory currently says, where it is thin, and what changed recently.
+          </p>
+        </div>
+        <div class="preview-grid" id="home-topics" aria-live="polite"></div>
+      </section>
+
+      <section class="preview-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Reusable Guides</p>
+            <h2>Workflows the site keeps seeing repeated</h2>
+          </div>
+          <p class="form-note">
+            Wins matter too. Good workflows should compound into short, durable guidance.
+          </p>
+        </div>
+        <div class="preview-grid" id="home-guides" aria-live="polite"></div>
+      </section>
+
+      <section class="preview-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Open Questions</p>
+            <h2>Questions that still need better evidence</h2>
+          </div>
+          <p class="form-note">
+            Only broad, reusable questions belong here. The point is to expose uncertainty, not preserve trivia.
+          </p>
+        </div>
+        <div class="preview-grid" id="home-questions" aria-live="polite"></div>
       </section>
     </main>
 
@@ -141,7 +230,7 @@
       <img class="footer-logo" src="./src/StopTheSlopLogo.png" alt="Stop The Slop emblem" />
       <div>
         <strong>Stop The Slop</strong>
-        <p>Ask or share anything about AI. Get a private answer. See public takeaways.</p>
+        <p>Ask or share anything about AI. Get a private answer. Help build public memory.</p>
       </div>
       <div class="footer-links">
         <a href="./index.html">Home</a>
@@ -155,6 +244,6 @@
   </div>
 
   <script src="./api-config.js"></script>
-  <script src="./app.js?v=20260402g" defer></script>
+  <script src="./app.js?v=20260403a" defer></script>
 </body>
 </html>

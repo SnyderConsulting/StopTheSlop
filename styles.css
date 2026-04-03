@@ -313,7 +313,7 @@ a:focus-visible {
 }
 
 .chat-first-panel .hero-title {
-  max-width: 11ch;
+  max-width: 13ch;
 }
 
 .page-hero {
@@ -404,7 +404,7 @@ a:focus-visible {
 .route-grid,
 .preview-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
 }
 
@@ -535,6 +535,70 @@ a:focus-visible {
 .preview-section {
   display: grid;
   gap: 22px;
+}
+
+.memory-proof-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.memory-proof-card,
+.memory-example-card,
+.memory-example-step {
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015)),
+    linear-gradient(135deg, rgba(118, 223, 131, 0.04), rgba(110, 214, 255, 0.04));
+}
+
+.memory-proof-card {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+}
+
+.memory-example-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  gap: 18px;
+  padding: 22px;
+}
+
+.memory-example-copy,
+.memory-example-steps {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.memory-example-step {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+}
+
+.memory-example-step p,
+.memory-proof-card p {
+  margin: 0;
+}
+
+.home-prompt-chips {
+  gap: 10px;
+}
+
+.prompt-chip {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  text-align: left;
+}
+
+.prompt-chip:hover {
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .feedback-grid {
@@ -1431,8 +1495,6 @@ textarea {
   .home-hero,
   .page-hero,
   .mini-metrics,
-  .route-grid,
-  .preview-grid,
   .mcp-grid,
   .signal-strip,
   .search-results-grid,
@@ -1442,6 +1504,18 @@ textarea {
   .conversation-layout,
   .mix-grid,
   .feedback-callout {
+    grid-template-columns: 1fr;
+  }
+
+  .preview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .memory-proof-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .memory-example-card {
     grid-template-columns: 1fr;
   }
 
@@ -1528,5 +1602,10 @@ textarea {
   .section-heading {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .preview-grid,
+  .memory-proof-grid {
+    grid-template-columns: 1fr;
   }
 }

@@ -12,6 +12,11 @@ const refs = {
   signalStrip: document.getElementById("signal-strip"),
   homeFeed: document.getElementById("home-feed"),
   homeEntityList: document.getElementById("home-entity-list"),
+  homePromptChips: document.getElementById("home-prompt-chips"),
+  homeNoticing: document.getElementById("home-noticing"),
+  homeTopics: document.getElementById("home-topics"),
+  homeGuides: document.getElementById("home-guides"),
+  homeQuestions: document.getElementById("home-questions"),
   composerForm: document.getElementById("composer-form"),
   composerText: document.getElementById("composer-text"),
   composerSeed: document.getElementById("composer-seed"),
@@ -100,6 +105,11 @@ async function init() {
 function wireHomePage() {
   refs.composerSeed?.addEventListener("click", seedComposerExample);
   refs.composerForm?.addEventListener("submit", handleComposerSubmit);
+  refs.homePromptChips?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-prompt]");
+    if (!button) return;
+    setComposerPrompt(button.getAttribute("data-prompt") || "");
+  });
 }
 
 function wireConversationPage() {
@@ -144,9 +154,35 @@ function wireWikiPage() {
 }
 
 function renderHome() {
-  renderSignalStrip(state.feed?.items || []);
-  renderHomeFeed(state.feed?.items || []);
-  renderFeaturedEntities(state.feed?.featuredEntities || []);
+  const collections = buildHomeCollections(state.feed);
+  renderArtifactGrid(
+    refs.homeNoticing,
+    collections.noticing,
+    "Nothing notable yet",
+    "When strong patterns start repeating, this is where the public reality check will show up.",
+    renderFeedCard
+  );
+  renderArtifactGrid(
+    refs.homeTopics,
+    collections.topics,
+    "No topic pages yet",
+    "Topic pages appear once the same tools, models, and workflows keep resurfacing.",
+    renderFeaturedEntityCard
+  );
+  renderArtifactGrid(
+    refs.homeGuides,
+    collections.guides,
+    "No reusable guides yet",
+    "The site will surface concise workflows once multiple submissions converge on them.",
+    renderFeedCard
+  );
+  renderArtifactGrid(
+    refs.homeQuestions,
+    collections.questions,
+    "No open questions yet",
+    "Broad, reusable questions that still need better evidence will show up here.",
+    renderFeedCard
+  );
 }
 
 async function loadConversationPage() {
@@ -251,7 +287,7 @@ async function handleComposerSubmit(event) {
 
   state.homeSubmitting = true;
   setButtonBusy(refs.composerSubmit, true, "Thinking...");
-  renderInlineNotice(refs.composerAuthNote, "Processing your submission and starting a conversation.");
+  renderInlineNotice(refs.composerAuthNote, "Starting a private thread, grounding an answer, and distilling what is reusable.");
 
   try {
     const formData = new FormData(refs.composerForm);
@@ -288,7 +324,7 @@ async function handleConversationSubmit(event) {
 
   state.conversationSubmitting = true;
   setButtonBusy(refs.conversationSubmit, true, "Sending...");
-  renderInlineNotice(refs.conversationAuthNote, "Reading your follow-up and updating the site takeaways.");
+  renderInlineNotice(refs.conversationAuthNote, "Reading your follow-up, answering privately, and refreshing the public memory where needed.");
 
   try {
     const formData = new FormData(refs.conversationForm);
@@ -317,9 +353,14 @@ async function handleConversationSubmit(event) {
 }
 
 function seedComposerExample() {
+  setComposerPrompt(
+    "People keep saying Claude Code is great for long coding sessions, but I keep hearing mixed things about reliability versus Cursor. What are people actually agreeing on, and what still seems disputed? https://www.anthropic.com/claude-code"
+  );
+}
+
+function setComposerPrompt(prompt) {
   if (refs.composerText) {
-    refs.composerText.value =
-      "People keep saying Claude Code is great for long coding sessions, but I keep hearing mixed things about reliability versus Cursor. What are people actually agreeing on, and what still seems disputed? https://www.anthropic.com/claude-code";
+    refs.composerText.value = String(prompt || "").trim();
   }
   refs.composerText?.focus();
 }
@@ -348,10 +389,9 @@ function renderAuthSlot() {
 }
 
 function renderAuthNotes() {
-  const inputs = "text";
   const note = state.session?.authenticated
-    ? `Signed in as ${state.session.user.publicHandle || state.session.user.name}. Your raw submission stays private. Accepted input: ${inputs}. Paste any URL directly into the message.`
-    : `You can post anonymously. Your raw submission stays private, and the public site only shows cleaned-up takeaways. Accepted input: ${inputs}. Paste any URL directly into the message.`;
+    ? `Signed in as ${state.session.user.publicHandle || state.session.user.name}. Your raw submission stays private. The public site only shows distilled memory. Paste any URL directly into the message.`
+    : "You can post anonymously. Your raw submission stays private, and the public site only shows distilled memory. Paste any URL directly into the message.";
   renderInlineNotice(refs.composerAuthNote, note, true);
   renderInlineNotice(refs.conversationAuthNote, note, true);
 }
@@ -399,6 +439,31 @@ function renderFeaturedEntities(entities) {
   refs.homeEntityList.innerHTML = entities.map(renderFeaturedEntityCard).join("");
 }
 
+function renderArtifactGrid(target, items, emptyTitle, emptyBody, renderItem) {
+  if (!target) return;
+  if (!items.length) {
+    target.innerHTML = renderStateCard(emptyTitle, emptyBody);
+    return;
+  }
+  target.innerHTML = items.map(renderItem).join("");
+}
+
+function buildHomeCollections(feed) {
+  const items = Array.isArray(feed?.items) ? feed.items : [];
+  const featuredEntities = Array.isArray(feed?.featuredEntities) ? feed.featuredEntities : [];
+  const seeing = items.filter((item) => item.kind === "cluster" || item.kind === "claim");
+  const guides = items.filter((item) => item.kind === "guide");
+  const questions = items.filter((item) => item.kind === "question");
+  const entities = featuredEntities.length ? featuredEntities : items.filter((item) => item.kind === "entity");
+
+  return {
+    noticing: seeing.slice(0, 6),
+    topics: entities.slice(0, 6),
+    guides: guides.slice(0, 4),
+    questions: questions.slice(0, 4),
+  };
+}
+
 function renderFeedCard(item) {
   const href = item.entityId ? `./wiki.html?entity=${encodeURIComponent(item.entityId)}` : "";
   const summary = String(item.summary || "").trim();
@@ -414,7 +479,7 @@ function renderFeedCard(item) {
     <span class="panel-kicker">${escapeHtml(formatKind(item.kind))}</span>
     <h3 class="ticket-title">${escapeHtml(item.title || "Untitled signal")}</h3>
     ${compactContext ? `<p class="feed-card-context">${escapeHtml(summary)}</p>` : ""}
-    ${summary && !compactContext ? `<p class="feed-card-summary">${escapeHtml(summary)}</p>` : '<p class="feed-card-summary">Fresh takeaway from the latest submissions and sources.</p>'}
+    ${summary && !compactContext ? `<p class="feed-card-summary">${escapeHtml(summary)}</p>` : '<p class="feed-card-summary">Fresh public memory pulled from recent submissions and sources.</p>'}
     ${meta ? `<div class="feed-card-meta">${escapeHtml(meta)}</div>` : ""}
   `;
 
@@ -509,7 +574,7 @@ function renderMessageCard(message) {
   const graphUpdates = Array.isArray(message.graphUpdates) && message.graphUpdates.length
     ? `
       <div class="message-section">
-        <span class="panel-kicker">Graph Updates</span>
+        <span class="panel-kicker">Public Memory</span>
         <div class="message-chip-list">
           ${message.graphUpdates.map(renderGraphUpdateChip).join("")}
         </div>
@@ -566,7 +631,7 @@ function renderConversationSidebar(conversation) {
   if (latestAssistant?.graphUpdates?.length) {
     blocks.push(
       renderSidebarBlock(
-        "What The Site Learned",
+        "Public Memory Changes",
         `<div class="sidebar-list">${latestAssistant.graphUpdates.map(renderGraphUpdateChip).join("")}</div>`
       )
     );
@@ -585,7 +650,7 @@ function renderConversationSidebar(conversation) {
     blocks.push(
       renderSidebarBlock(
         "Answer Details",
-        `<p>The AI has not replied yet. Once it does, the supporting sources and what the site learned will appear here.</p>`
+        `<p>The AI has not replied yet. Once it does, the supporting sources and any public memory changes will appear here.</p>`
       )
     );
   }
@@ -595,7 +660,7 @@ function renderConversationSidebar(conversation) {
 
 function renderEntityListLoading() {
   if (!refs.entityList) return;
-  refs.entityList.innerHTML = renderStateCard("Loading topics", "Reading the latest tracked tools, models, and workflows.");
+  refs.entityList.innerHTML = renderStateCard("Loading topics", "Reading the latest public memory for tools, models, and workflows.");
 }
 
 function renderEntityListError(message) {
@@ -643,7 +708,7 @@ function renderEntityInspectorEmpty() {
   refs.entityInspector.innerHTML = `
     <div class="empty-state">
       <h3>Select a topic</h3>
-      <p>Open any topic to see the main takeaways, guides, questions, and related subjects.</p>
+      <p>Open any topic to see what the public memory currently says, what guides exist, and where questions remain open.</p>
     </div>
   `;
 }
