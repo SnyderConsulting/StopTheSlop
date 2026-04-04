@@ -88,8 +88,12 @@ a:focus-visible {
   inset: 0;
   z-index: 30;
   display: grid;
-  place-items: center;
-  padding: 24px;
+  align-items: start;
+  justify-items: center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 24px 24px 40px;
   background:
     radial-gradient(circle at top, rgba(118, 223, 131, 0.18), transparent 28%),
     linear-gradient(180deg, rgba(4, 6, 6, 0.98), rgba(4, 6, 6, 0.995));
@@ -97,6 +101,7 @@ a:focus-visible {
 
 .onboarding-shell {
   width: min(820px, 100%);
+  margin: auto 0;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-xl);
   padding: 30px;
@@ -1609,6 +1614,19 @@ textarea {
 }
 
 @media (max-width: 760px) {
+  .onboarding-gate {
+    padding: 14px 14px 28px;
+  }
+
+  .onboarding-shell {
+    padding: 22px 18px;
+    border-radius: 22px;
+  }
+
+  .onboarding-copy h1 {
+    max-width: none;
+  }
+
   .page-shell {
     width: min(100% - 20px, 100%);
   }
