@@ -10,12 +10,13 @@ import os
 import re
 import secrets
 import socket
+import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import requests
 from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
@@ -30,6 +31,115 @@ from google.oauth2 import id_token as google_id_token
 from itsdangerous import BadSignature, BadTimeSignature, URLSafeTimedSerializer
 from werkzeug.exceptions import HTTPException
 
+from sts_backend.common import (
+    build_anonymous_handle,
+    build_row_key,
+    dedupe_texts,
+    filter_publishable_subject_names,
+    has_ai_topic_signal,
+    hash_token,
+    is_blocked_entity_name,
+    merge_unique,
+    normalize_domain,
+    normalize_for_match,
+    normalize_question_text,
+    now_iso,
+    read_choice,
+    read_json,
+    read_text,
+    safe_json_loads,
+    should_keep_claim_text,
+    should_keep_entity_candidate,
+    should_keep_guide,
+    should_keep_question_text,
+    slugify,
+    split_words,
+    turn_looks_like_question,
+    validate_public_import_url,
+)
+from sts_backend.config import (
+    ANSWER_PARTITION_KEY,
+    CLAIM_PARTITION_KEY,
+    CLAIM_TYPE_OPTIONS,
+    CONVERSATION_PARTITION_KEY,
+    CRAWL_RUN_PARTITION_KEY,
+    DEFAULT_LIVE_WEB_FEED_QUERIES,
+    DEFAULT_WEB_CRAWL_QUERIES,
+    ENTITY_PARTITION_KEY,
+    ENTITY_TYPE_OPTIONS,
+    GUIDE_PARTITION_KEY,
+    INTAKE_SCHEMA,
+    LEGACY_TICKET_PARTITION_KEY,
+    LIVE_WEB_CACHE_TTL_SECONDS,
+    MAX_EXTRACTED_TEXT_CHARS,
+    MAX_FEED_ITEMS,
+    META_PARTITION_KEY,
+    MODERATION_ACTIONS,
+    ONBOARDING_PARTITION_KEY,
+    ONBOARDING_USE_CASE_OPTIONS,
+    PERPLEXITY_SEARCH_ENDPOINT,
+    POST_PARTITION_KEY,
+    PUBLIC_ITEM_KINDS,
+    PUBLIC_ENTITY_CREATION_TYPES,
+    QUESTION_PARTITION_KEY,
+    QUESTION_STATUS_OPTIONS,
+    REPLY_SCHEMA,
+    ROOT_DIR,
+    SESSION_SALT,
+    SOURCE_PARTITION_KEY,
+    SOURCE_BLOB_CONTAINER,
+    STANCE_OPTIONS,
+    TABLE_NAME,
+    TOOL_FAMILY_METADATA,
+    USER_PARTITION_KEY,
+    WEB_IMPORT_USER_AGENT,
+    WEB_POST_PARTITION_KEY,
+    WEB_POST_SCHEMA,
+)
+from sts_backend.records import (
+    answer_record_to_table,
+    build_entity_description,
+    build_entity_source_links,
+    claim_record_to_table,
+    conversation_record_to_table,
+    crawl_run_record_to_table,
+    entity_record_to_table,
+    guide_record_to_table,
+    message_partition_key,
+    message_record_to_table,
+    onboarding_record_to_table,
+    post_record_to_table,
+    question_record_to_table,
+    source_record_to_table,
+    table_to_claim_record,
+    table_to_conversation_record,
+    table_to_entity_record,
+    table_to_guide_record,
+    table_to_message_record,
+    table_to_post_record,
+    table_to_question_record,
+    table_to_source_record,
+    table_to_user_record,
+    table_to_web_post_record,
+    user_record_to_table,
+    web_post_record_to_table,
+)
+from sts_backend.storage import (
+    get_row,
+    get_table_client,
+    list_rows,
+    upsert_row,
+    upload_blob_bytes,
+)
+from sts_backend.web_sources import (
+    build_web_post_id,
+    extract_web_import_preview,
+    extract_youtube_thumbnail,
+    infer_web_source_type,
+    present_import_source_label,
+    read_query_list,
+)
+
 try:
     from openai import AzureOpenAI
 except ImportError:  # pragma: no cover
@@ -41,360 +151,6 @@ except ImportError:  # pragma: no cover
     PdfReader = None
 
 
-ROOT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = ROOT_DIR.parent
-WORKSPACE_ROOT = PROJECT_ROOT.parent
-
-
-def load_dotenv_file(env_path: Path) -> None:
-    if not env_path.exists():
-        return
-
-    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        if not key or key in os.environ:
-            continue
-        os.environ[key] = value.strip().strip("'").strip('"')
-
-
-for candidate in (PROJECT_ROOT / ".env", WORKSPACE_ROOT / ".env"):
-    load_dotenv_file(candidate)
-
-
-TABLE_NAME = os.getenv("TABLE_NAME", "StopTheSlopTickets")
-SOURCE_BLOB_CONTAINER = os.getenv("SOURCE_BLOB_CONTAINER", "source-ingestion")
-WEB_IMPORT_USER_AGENT = "StopTheSlopBot/2.0 (+https://stoptheslop.tech)"
-PERPLEXITY_SEARCH_ENDPOINT = str(
-    os.getenv("PERPLEXITY_SEARCH_ENDPOINT", "https://api.perplexity.ai/search")
-).strip() or "https://api.perplexity.ai/search"
-SESSION_SALT = "stoptheslop-session-v2"
-MAX_EXTRACTED_TEXT_CHARS = 18_000
-MAX_FEED_ITEMS = 24
-PUBLIC_ENTITY_CREATION_TYPES = {
-    "model",
-    "product",
-    "vendor",
-    "service",
-    "framework",
-    "dataset",
-    "concept",
-    "company",
-    "tool",
-    "topic",
-}
-AI_TOPIC_KEYWORDS = {
-    "ai",
-    "artificial intelligence",
-    "llm",
-    "model",
-    "models",
-    "reasoning",
-    "context",
-    "prompt",
-    "prompts",
-    "agent",
-    "agents",
-    "agentic",
-    "rag",
-    "retrieval",
-    "embedding",
-    "embeddings",
-    "vector",
-    "search",
-    "chatbot",
-    "assistant",
-    "copilot",
-    "deepfake",
-    "synthetic media",
-    "slop",
-    "benchmark",
-    "dataset",
-    "inference",
-    "multimodal",
-    "codegen",
-    "coding",
-}
-QUESTION_OPENERS = (
-    "how ",
-    "what ",
-    "why ",
-    "can ",
-    "should ",
-    "is ",
-    "are ",
-    "does ",
-    "do ",
-    "which ",
-    "could ",
-)
-BLOCKED_ENTITY_EXACT_NAMES = {
-    "ai",
-    "artificial intelligence",
-    "ai content",
-    "ai generated content",
-    "generated content",
-    "harmful ai content",
-    "anti immigrant material",
-    "advocacy groups",
-    "human musicians",
-    "public figures",
-    "new users",
-    "new youtube users",
-}
-BLOCKED_ENTITY_NAME_PATTERNS = (
-    re.compile(
-        r"^(new )?(users?|viewers?|people|children|kids|parents?|musicians?|artists?|journalists?|creators?|researchers?|experts?|lawmakers?|groups?|communities|public figures?)$"
-    ),
-    re.compile(r"^(the )?(song|songs|video|videos|article|articles|study|studies|report|reports|headline|headlines|story|stories|chart|charts)$"),
-)
-BLOCKED_QUESTION_PREFIXES = (
-    "why did ",
-    "what happened to ",
-    "when did ",
-    "who is ",
-    "who are ",
-    "what actions are ",
-)
-BLOCKED_QUESTION_PHRASES = {
-    "advocacy groups",
-    "human musicians",
-    "public figures",
-    "new youtube users",
-    "disappear from",
-    "removed from",
-}
-BLOCKED_CLAIM_PHRASES = {
-    "advocacy groups",
-    "human musicians",
-    "public figures",
-    "new youtube users",
-}
-
-SOURCE_PARTITION_KEY = "SOURCE"
-CONVERSATION_PARTITION_KEY = "CONVERSATION"
-ANSWER_PARTITION_KEY = "ANSWER"
-CLAIM_PARTITION_KEY = "CLAIM"
-GUIDE_PARTITION_KEY = "GUIDE"
-QUESTION_PARTITION_KEY = "QUESTION"
-POST_PARTITION_KEY = "POST"
-ENTITY_PARTITION_KEY = "ENTITY"
-USER_PARTITION_KEY = "USER"
-META_PARTITION_KEY = "META"
-LEGACY_TICKET_PARTITION_KEY = "TICKET"
-ONBOARDING_PARTITION_KEY = "ONBOARDING"
-
-ENTITY_TYPE_OPTIONS = {
-    "model",
-    "product",
-    "vendor",
-    "service",
-    "framework",
-    "dataset",
-    "concept",
-    "company",
-    "content",
-    "tool",
-    "topic",
-    "other",
-}
-CLAIM_TYPE_OPTIONS = {
-    "good_for",
-    "bad_at",
-    "used_for",
-    "guide",
-    "trend",
-    "comparison",
-    "observation",
-    "question",
-}
-STANCE_OPTIONS = {"positive", "negative", "neutral", "mixed"}
-MODERATION_ACTIONS = {"allow", "redact", "reject"}
-QUESTION_STATUS_OPTIONS = {"open", "answered"}
-PUBLIC_ITEM_KINDS = {"claim", "guide", "question", "cluster", "entity"}
-ONBOARDING_USE_CASE_OPTIONS = {
-    "coding",
-    "research",
-    "writing",
-    "media",
-    "ops",
-    "other",
-}
-
-TOOL_FAMILY_METADATA = {
-    "chatgpt": {
-        "canonicalName": "ChatGPT",
-        "entityType": "product",
-        "vendor": "OpenAI",
-        "officialUrl": "https://chatgpt.com/",
-    },
-    "claude": {
-        "canonicalName": "Claude",
-        "entityType": "product",
-        "vendor": "Anthropic",
-        "officialUrl": "https://claude.ai/",
-    },
-    "claude-code": {
-        "canonicalName": "Claude Code",
-        "entityType": "product",
-        "vendor": "Anthropic",
-        "officialUrl": "https://www.anthropic.com/claude-code",
-    },
-    "gemini": {
-        "canonicalName": "Gemini",
-        "entityType": "product",
-        "vendor": "Google",
-        "officialUrl": "https://gemini.google.com/",
-    },
-    "copilot": {
-        "canonicalName": "GitHub Copilot",
-        "entityType": "product",
-        "vendor": "GitHub",
-        "officialUrl": "https://github.com/features/copilot",
-    },
-    "cursor": {
-        "canonicalName": "Cursor",
-        "entityType": "product",
-        "vendor": "Anysphere",
-        "officialUrl": "https://www.cursor.com/",
-    },
-    "windsurf": {
-        "canonicalName": "Windsurf",
-        "entityType": "product",
-        "vendor": "Codeium",
-        "officialUrl": "https://windsurf.com/",
-    },
-    "perplexity": {
-        "canonicalName": "Perplexity",
-        "entityType": "product",
-        "vendor": "Perplexity",
-        "officialUrl": "https://www.perplexity.ai/",
-    },
-    "chroma": {
-        "canonicalName": "Chroma",
-        "entityType": "service",
-        "vendor": "Chroma",
-        "officialUrl": "https://www.trychroma.com/",
-    },
-}
-
-INTAKE_SCHEMA = {
-    "name": "sts_intake_extraction",
-    "strict": True,
-    "schema": {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-            "moderation_action": {"type": "string"},
-            "moderation_reason": {"type": "string"},
-            "conversation_title": {"type": "string"},
-            "query_text": {"type": "string"},
-            "summary": {"type": "string"},
-            "entities": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "canonical_name": {"type": "string"},
-                        "entity_type": {"type": "string"},
-                        "vendor": {"type": "string"},
-                        "official_url": {"type": "string"},
-                        "aliases": {"type": "array", "items": {"type": "string"}},
-                        "summary": {"type": "string"},
-                    },
-                    "required": [
-                        "canonical_name",
-                        "entity_type",
-                        "vendor",
-                        "official_url",
-                        "aliases",
-                        "summary",
-                    ],
-                },
-            },
-            "claims": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "subject_names": {"type": "array", "items": {"type": "string"}},
-                        "claim_text": {"type": "string"},
-                        "claim_type": {"type": "string"},
-                        "stance": {"type": "string"},
-                        "tags": {"type": "array", "items": {"type": "string"}},
-                        "confidence": {"type": "number"},
-                    },
-                    "required": [
-                        "subject_names",
-                        "claim_text",
-                        "claim_type",
-                        "stance",
-                        "tags",
-                        "confidence",
-                    ],
-                },
-            },
-            "guides": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "title": {"type": "string"},
-                        "summary": {"type": "string"},
-                        "steps": {"type": "array", "items": {"type": "string"}},
-                        "subject_names": {"type": "array", "items": {"type": "string"}},
-                    },
-                    "required": ["title", "summary", "steps", "subject_names"],
-                },
-            },
-            "questions": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "question_text": {"type": "string"},
-                        "subject_names": {"type": "array", "items": {"type": "string"}},
-                        "status": {"type": "string"},
-                    },
-                    "required": ["question_text", "subject_names", "status"],
-                },
-            },
-        },
-        "required": [
-            "moderation_action",
-            "moderation_reason",
-            "conversation_title",
-            "query_text",
-            "summary",
-            "entities",
-            "claims",
-            "guides",
-            "questions",
-        ],
-    },
-}
-
-REPLY_SCHEMA = {
-    "name": "sts_grounded_reply",
-    "strict": True,
-    "schema": {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-            "reply": {"type": "string"},
-            "followups": {"type": "array", "items": {"type": "string"}},
-            "answer_title": {"type": "string"},
-        },
-        "required": ["reply", "followups", "answer_title"],
-    },
-}
 
 app = Flask(__name__)
 app.config["JSON_SORT_KEYS"] = False
@@ -406,117 +162,13 @@ allowed_origins = [
 ]
 CORS(app, resources={r"/api/*": {"origins": allowed_origins or "*"}})
 
-_table_client = None
-_blob_container_client = None
 _openai_client = None
 _openai_checked = False
 _migration_checked = False
+_live_web_feed_cache = {"expires_at": 0.0, "items": []}
 _background_executor = ThreadPoolExecutor(
     max_workers=max(1, int(os.getenv("BACKGROUND_WORKERS", "2") or "2"))
 )
-
-
-def now_iso() -> str:
-    return (
-        datetime.now(timezone.utc)
-        .replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
-
-
-def read_text(value: Any, max_length: int | None = None) -> str:
-    text = str(value or "").strip()
-    if max_length is not None:
-        text = text[:max_length]
-    return text
-
-
-def read_json(value: Any, default: Any):
-    try:
-        return json.loads(value or "")
-    except Exception:
-        return default
-
-
-def safe_json_loads(content: str) -> dict[str, Any]:
-    try:
-        parsed = json.loads(content or "{}")
-        return parsed if isinstance(parsed, dict) else {}
-    except Exception:
-        return {}
-
-
-def dedupe_texts(items, limit: int = 12) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for item in items or []:
-        text = read_text(item, 240)
-        key = text.casefold()
-        if not text or key in seen:
-            continue
-        seen.add(key)
-        result.append(text)
-        if len(result) >= limit:
-            break
-    return result
-
-
-def normalize_for_match(value: Any) -> str:
-    cleaned = re.sub(r"[^a-z0-9]+", " ", read_text(value, 300).lower()).strip()
-    return re.sub(r"\s+", " ", cleaned)
-
-
-def split_words(value: Any) -> list[str]:
-    return [word for word in normalize_for_match(value).split() if word]
-
-
-def has_ai_topic_signal(value: Any) -> bool:
-    normalized = normalize_for_match(value)
-    if not normalized:
-        return False
-    return any(keyword in normalized for keyword in AI_TOPIC_KEYWORDS)
-
-
-def turn_looks_like_question(value: Any) -> bool:
-    text = read_text(value, 6000)
-    normalized = normalize_for_match(text)
-    return "?" in text or normalized.startswith(QUESTION_OPENERS)
-
-
-def is_blocked_entity_name(name: str) -> bool:
-    normalized = normalize_for_match(name)
-    if not normalized:
-        return True
-    if normalized in BLOCKED_ENTITY_EXACT_NAMES:
-        return True
-    return any(pattern.match(normalized) for pattern in BLOCKED_ENTITY_NAME_PATTERNS)
-
-
-def should_keep_entity_candidate(
-    name: str,
-    entity_type: str,
-    official_url: str = "",
-    source_blob: str = "",
-    treat_as_existing: bool = False,
-) -> bool:
-    normalized = normalize_for_match(name)
-    words = split_words(name)
-    resolved_type = read_choice(entity_type, ENTITY_TYPE_OPTIONS, "other")
-    source_match = normalized and normalized in normalize_for_match(source_blob)
-
-    if not normalized or len(words) > 6 or len(normalized) < 3:
-        return False
-    if is_blocked_entity_name(normalized):
-        return False
-    if infer_tool_family_from_name(name):
-        return True
-    if resolved_type not in PUBLIC_ENTITY_CREATION_TYPES:
-        return False
-    if resolved_type in {"concept", "topic"}:
-        return (treat_as_existing or source_match) and has_ai_topic_signal(name) and len(words) <= 4
-    return treat_as_existing or source_match or bool(read_text(official_url, 240))
-
 
 def infer_subject_names_from_text(
     curated_entities: list[dict[str, Any]],
@@ -556,71 +208,6 @@ def canonicalize_subject_names(
     if not canonical_subjects and fallback_text:
         canonical_subjects.extend(infer_subject_names_from_text(curated_entities, fallback_text))
     return dedupe_texts(canonical_subjects, limit=6)
-
-
-def filter_publishable_subject_names(subject_names: list[str]) -> list[str]:
-    return [
-        name
-        for name in dedupe_texts(subject_names, limit=8)
-        if not is_blocked_entity_name(name)
-    ]
-
-
-def should_keep_claim_text(claim_text: str) -> bool:
-    normalized = normalize_for_match(claim_text)
-    words = split_words(claim_text)
-    if not normalized or len(words) < 3:
-        return False
-    if claim_text.strip().endswith("?"):
-        return False
-    if normalized.startswith(("according to ", "this article ", "the article ", "the report ")):
-        return False
-    if any(phrase in normalized for phrase in BLOCKED_CLAIM_PHRASES):
-        return False
-    if re.match(r"^\d", normalized) and any(token in normalized for token in ("views", "accounts", "videos")):
-        return False
-    return True
-
-
-def should_keep_guide(title: str, summary: str, steps: list[str], subject_names: list[str]) -> bool:
-    if not subject_names:
-        return False
-    if len(split_words(title)) < 3:
-        return False
-    return bool(read_text(summary, 320) or steps[:2])
-
-
-def normalize_question_text(question_text: str) -> str:
-    text = read_text(question_text, 220)
-    if text and not text.endswith("?"):
-        text = f"{text}?"
-    return text
-
-
-def should_keep_question_text(
-    question_text: str,
-    user_turn_text: str,
-    subject_names: list[str],
-) -> bool:
-    text = normalize_question_text(question_text)
-    normalized = normalize_for_match(text)
-    words = split_words(text)
-
-    if not turn_looks_like_question(user_turn_text):
-        return False
-    if not normalized or len(words) < 3 or len(words) > 20:
-        return False
-    if normalized.startswith(BLOCKED_QUESTION_PREFIXES):
-        return False
-    if any(phrase in normalized for phrase in BLOCKED_QUESTION_PHRASES):
-        return False
-    if re.search(r"[\"“”][^\"“”]{5,}[\"“”]", text):
-        return False
-    if re.search(r"\b(19|20)\d{2}\b", normalized):
-        return False
-    if subject_names and any(is_blocked_entity_name(name) for name in subject_names):
-        return False
-    return bool(subject_names or has_ai_topic_signal(text))
 
 
 def curate_extraction_result(
@@ -788,238 +375,6 @@ def is_publishable_entity_record(entity: dict[str, Any]) -> bool:
     )
 
 
-def slugify(value: Any) -> str:
-    normalized = normalize_for_match(value)
-    return normalized.replace(" ", "-") or secrets.token_hex(4)
-
-
-def read_choice(value: Any, allowed: set[str], fallback: str) -> str:
-    choice = read_text(value, 80).lower()
-    return choice if choice in allowed else fallback
-
-
-def hash_token(value: str) -> str:
-    return hashlib.sha256(read_text(value, 500).encode("utf-8")).hexdigest()
-
-
-def build_row_key(prefix: str) -> str:
-    return f"{prefix}-{secrets.token_hex(8)}"
-
-
-def build_anonymous_handle(seed: str) -> str:
-    digest = hashlib.sha256(f"sts-anon::{read_text(seed, 240)}".encode("utf-8")).hexdigest()[:8]
-    return f"anon-{digest}"
-
-
-def merge_unique(existing: list[str], incoming: list[str], limit: int = 12) -> list[str]:
-    return dedupe_texts([*(existing or []), *(incoming or [])], limit=limit)
-
-
-def normalize_domain(hostname: str) -> str:
-    host = read_text(hostname, 240).lower().strip(".")
-    if host.startswith("www."):
-        host = host[4:]
-    return host
-
-
-def validate_public_import_url(candidate_url: str) -> str:
-    parsed = urlparse(read_text(candidate_url, 2000))
-    if parsed.scheme not in {"http", "https"}:
-        raise ValueError("Only http:// and https:// URLs are allowed.")
-
-    hostname = normalize_domain(parsed.hostname or "")
-    if not hostname:
-        raise ValueError("Enter a valid URL.")
-    if hostname in {"localhost", "0.0.0.0"} or hostname.endswith(".local"):
-        raise ValueError("Local and private hosts cannot be fetched.")
-
-    try:
-        address_infos = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
-    except socket.gaierror as error:
-        raise ValueError("That URL could not be resolved.") from error
-
-    for address_info in address_infos:
-        ip_value = address_info[4][0]
-        ip_obj = ipaddress.ip_address(ip_value)
-        if (
-            ip_obj.is_private
-            or ip_obj.is_loopback
-            or ip_obj.is_link_local
-            or ip_obj.is_multicast
-            or ip_obj.is_reserved
-            or ip_obj.is_unspecified
-        ):
-            raise ValueError("Private network targets cannot be fetched.")
-
-    return parsed._replace(fragment="").geturl()[:1800]
-
-
-def read_meta_content(soup: BeautifulSoup, *names: str) -> str:
-    for name in names:
-        tag = soup.find("meta", attrs={"property": name}) or soup.find("meta", attrs={"name": name})
-        content = read_text((tag or {}).get("content", ""), 500)
-        if content:
-            return content
-    return ""
-
-
-def titleize_domain_label(domain: str) -> str:
-    cleaned = normalize_domain(domain)
-    root = cleaned.split(".")[0]
-    return root.replace("-", " ").replace("_", " ").title() if root else "Web"
-
-
-def present_import_source_label(domain: str, site_name: str = "", source_url: str = "") -> str:
-    normalized_domain = normalize_domain(domain)
-    mapped = {
-        "x.com": "X",
-        "twitter.com": "X",
-        "reddit.com": "Reddit",
-        "medium.com": "Medium",
-        "news.ycombinator.com": "Hacker News",
-        "github.com": "GitHub",
-        "youtube.com": "YouTube",
-        "youtu.be": "YouTube",
-        "substack.com": "Substack",
-        "linkedin.com": "LinkedIn",
-    }
-    if normalized_domain in mapped:
-        return mapped[normalized_domain]
-
-    cleaned_site_name = read_text(site_name, 120)
-    parsed_url = urlparse(read_text(source_url, 1800))
-    if cleaned_site_name and cleaned_site_name.lower() not in {
-        normalized_domain.lower(),
-        (parsed_url.hostname or "").lower(),
-    }:
-        return cleaned_site_name
-
-    return titleize_domain_label(normalized_domain)
-
-
-def extract_web_import_preview(source_url: str) -> dict[str, Any]:
-    current_url = validate_public_import_url(source_url)
-    response = None
-
-    for _redirect_count in range(5):
-        validate_public_import_url(current_url)
-        response = requests.get(
-            current_url,
-            allow_redirects=False,
-            timeout=(3.5, 7.0),
-            headers={
-                "User-Agent": WEB_IMPORT_USER_AGENT,
-                "Accept": "text/html,application/xhtml+xml",
-            },
-            stream=True,
-        )
-        if 300 <= response.status_code < 400 and response.headers.get("Location"):
-            response.close()
-            current_url = urljoin(current_url, response.headers["Location"])
-            continue
-        break
-
-    if response is None:
-        raise ValueError("Could not fetch that page.")
-    if response.status_code >= 400:
-        raise ValueError(f"The source page returned {response.status_code}.")
-
-    content_type = read_text(response.headers.get("Content-Type"), 160).lower()
-    if "html" not in content_type:
-        raise ValueError("Only HTML pages can be fetched from a URL right now.")
-
-    chunks: list[bytes] = []
-    bytes_read = 0
-    for chunk in response.iter_content(chunk_size=16_384):
-        if not chunk:
-            continue
-        chunks.append(chunk)
-        bytes_read += len(chunk)
-        if bytes_read >= 350_000:
-            break
-    response.close()
-
-    html = b"".join(chunks).decode(response.encoding or "utf-8", errors="ignore")
-    final_url = validate_public_import_url(response.url or current_url)
-    soup = BeautifulSoup(html, "html.parser")
-    for tag in soup(["script", "style", "noscript", "svg", "iframe"]):
-        tag.decompose()
-
-    title = (
-        read_meta_content(soup, "og:title", "twitter:title")
-        or read_text((soup.title or {}).get_text(" ", strip=True), 180)
-    )
-    description = read_meta_content(soup, "description", "og:description", "twitter:description")
-    parsed_final = urlparse(final_url)
-    domain = normalize_domain(parsed_final.hostname or "")
-    body_root = soup.find("article") or soup.find("main") or soup.body or soup
-    paragraphs = [
-        read_text(node.get_text(" ", strip=True), 320)
-        for node in body_root.find_all(["p", "li"], limit=24)
-    ]
-    paragraphs = [paragraph for paragraph in paragraphs if len(paragraph) >= 40]
-    excerpt = read_text(" ".join(paragraphs[:5]), 1200) or description
-    site_name = read_text(read_meta_content(soup, "og:site_name"), 120) or domain
-
-    return {
-        "url": final_url,
-        "domain": domain,
-        "title": read_text(title or domain or "Imported page", 180),
-        "description": read_text(description, 320),
-        "excerpt": read_text(excerpt, 1200),
-        "siteName": site_name,
-        "sourceLabel": present_import_source_label(domain, site_name, final_url),
-    }
-
-
-def build_table_service_client() -> TableServiceClient:
-    connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "").strip()
-    if connection_string:
-        return TableServiceClient.from_connection_string(connection_string)
-
-    storage_account_name = os.getenv("STORAGE_ACCOUNT_NAME", "").strip()
-    if not storage_account_name:
-        raise RuntimeError("Set AZURE_STORAGE_CONNECTION_STRING or STORAGE_ACCOUNT_NAME.")
-
-    endpoint = f"https://{storage_account_name}.table.core.windows.net"
-    credential = DefaultAzureCredential(exclude_interactive_browser_credential=True)
-    return TableServiceClient(endpoint=endpoint, credential=credential)
-
-
-def get_table_client():
-    global _table_client
-    if _table_client is None:
-        _table_client = build_table_service_client().create_table_if_not_exists(TABLE_NAME)
-    return _table_client
-
-
-def build_blob_service_client() -> BlobServiceClient:
-    connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "").strip()
-    if connection_string:
-        return BlobServiceClient.from_connection_string(connection_string)
-
-    storage_account_name = os.getenv("STORAGE_ACCOUNT_NAME", "").strip()
-    if not storage_account_name:
-        raise RuntimeError("Set AZURE_STORAGE_CONNECTION_STRING or STORAGE_ACCOUNT_NAME.")
-
-    endpoint = f"https://{storage_account_name}.blob.core.windows.net"
-    credential = DefaultAzureCredential(exclude_interactive_browser_credential=True)
-    return BlobServiceClient(account_url=endpoint, credential=credential)
-
-
-def get_blob_container_client():
-    global _blob_container_client
-    if _blob_container_client is None:
-        service_client = build_blob_service_client()
-        client = service_client.get_container_client(SOURCE_BLOB_CONTAINER)
-        try:
-            client.create_container()
-        except ResourceExistsError:
-            pass
-        _blob_container_client = client
-    return _blob_container_client
-
-
 def get_openai_client():
     global _openai_client, _openai_checked
     if _openai_checked:
@@ -1069,36 +424,6 @@ def get_session_serializer() -> URLSafeTimedSerializer | None:
     if not secret:
         return None
     return URLSafeTimedSerializer(secret_key=secret, salt=SESSION_SALT)
-
-
-def user_record_to_table(user: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "PartitionKey": USER_PARTITION_KEY,
-        "RowKey": user["id"],
-        "email": user.get("email", ""),
-        "displayName": user.get("displayName", ""),
-        "pictureUrl": user.get("pictureUrl", ""),
-        "emailVerified": bool(user.get("emailVerified", False)),
-        "provider": user.get("provider", "google"),
-        "createdAt": user.get("createdAt", now_iso()),
-        "updatedAt": user.get("updatedAt", now_iso()),
-        "lastLoginAt": user.get("lastLoginAt", now_iso()),
-    }
-
-
-def table_to_user_record(entity: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": entity["RowKey"],
-        "email": entity.get("email", ""),
-        "displayName": entity.get("displayName", ""),
-        "pictureUrl": entity.get("pictureUrl", ""),
-        "emailVerified": bool(entity.get("emailVerified", False)),
-        "provider": entity.get("provider", "google"),
-        "createdAt": entity.get("createdAt", now_iso()),
-        "updatedAt": entity.get("updatedAt", now_iso()),
-        "lastLoginAt": entity.get("lastLoginAt", now_iso()),
-    }
-
 
 def get_user_record(user_id: str):
     try:
@@ -1186,22 +511,6 @@ def get_authenticated_user() -> dict[str, Any] | None:
     return decode_session_token(read_bearer_token())
 
 
-def list_rows(partition_key: str) -> list[dict[str, Any]]:
-    query = f"PartitionKey eq '{partition_key}'"
-    return list(get_table_client().query_entities(query_filter=query))
-
-
-def get_row(partition_key: str, row_key: str) -> dict[str, Any] | None:
-    try:
-        return get_table_client().get_entity(partition_key=partition_key, row_key=row_key)
-    except ResourceNotFoundError:
-        return None
-
-
-def upsert_row(entity: dict[str, Any]) -> None:
-    get_table_client().upsert_entity(mode=UpdateMode.REPLACE, entity=entity)
-
-
 def read_request_ip() -> str:
     for candidate in (
         request.headers.get("CF-Connecting-IP"),
@@ -1213,25 +522,6 @@ def read_request_ip() -> str:
             continue
         return read_text(value.split(",", 1)[0], 120)
     return ""
-
-
-def onboarding_record_to_table(record: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "PartitionKey": ONBOARDING_PARTITION_KEY,
-        "RowKey": record["visitorId"],
-        "surveyVersion": record.get("surveyVersion", "20260403a"),
-        "aiUseCase": record.get("aiUseCase", ""),
-        "slopMeaning": record.get("slopMeaning", ""),
-        "desiredProduct": record.get("desiredProduct", ""),
-        "entryPath": record.get("entryPath", ""),
-        "referrer": record.get("referrer", ""),
-        "userId": record.get("userId", ""),
-        "clientIpHash": record.get("clientIpHash", ""),
-        "userAgent": record.get("userAgent", ""),
-        "createdAt": record.get("createdAt", now_iso()),
-        "updatedAt": record.get("updatedAt", now_iso()),
-    }
-
 
 def persist_onboarding_response() -> dict[str, Any]:
     payload = request.get_json(silent=True) or {}
@@ -1277,322 +567,6 @@ def persist_onboarding_response() -> dict[str, Any]:
         "surveyVersion": survey_version,
         "completedAt": now,
     }
-
-
-def build_entity_description(canonical_name: str, entity_type: str, vendor: str) -> str:
-    subject = canonical_name or "This AI entity"
-    if vendor:
-        return f"{subject} is a tracked {entity_type} from {vendor}."
-    return f"{subject} is a tracked AI {entity_type}."
-
-
-def build_entity_source_links(entity: dict[str, Any]) -> dict[str, str]:
-    canonical_name = entity.get("canonicalName", "")
-    query = canonical_name or entity.get("vendor", "") or entity.get("id", "")
-    return {
-        "officialUrl": read_text(entity.get("officialUrl"), 200),
-        "webSearchUrl": f"https://www.google.com/search?q={query.replace(' ', '+')}",
-        "redditSearchUrl": f"https://www.reddit.com/search/?q={query.replace(' ', '%20')}",
-    }
-
-
-def entity_record_to_table(entity: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "PartitionKey": ENTITY_PARTITION_KEY,
-        "RowKey": entity["id"],
-        "canonicalName": entity["canonicalName"],
-        "entityType": entity.get("entityType", "other"),
-        "toolFamily": entity.get("toolFamily", ""),
-        "vendor": entity.get("vendor", ""),
-        "description": entity.get("description", ""),
-        "summary": entity.get("summary", ""),
-        "aliasesJson": json.dumps(entity.get("aliases", [])),
-        "goodForJson": json.dumps(entity.get("goodFor", [])),
-        "badAtJson": json.dumps(entity.get("badAt", [])),
-        "usedForJson": json.dumps(entity.get("usedFor", [])),
-        "betterThanJson": json.dumps(entity.get("betterThan", [])),
-        "worseThanJson": json.dumps(entity.get("worseThan", [])),
-        "officialUrl": entity.get("officialUrl", ""),
-        "sentiment": entity.get("sentiment", "mixed"),
-        "ratingAverage": float(entity.get("ratingAverage", 0.0) or 0.0),
-        "topTagsJson": json.dumps(entity.get("topTags", [])),
-        "topModalitiesJson": json.dumps(entity.get("topModalities", [])),
-        "topSurfacesJson": json.dumps(entity.get("topSurfaces", [])),
-        "experienceMixJson": json.dumps(entity.get("experienceMix", {})),
-        "latestTicketsJson": json.dumps(entity.get("latestTickets", [])),
-        "statsJson": json.dumps(entity.get("stats", {})),
-        "createdAt": entity.get("createdAt", now_iso()),
-        "updatedAt": entity.get("updatedAt", now_iso()),
-    }
-
-
-def table_to_entity_record(entity: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": entity["RowKey"],
-        "canonicalName": entity.get("canonicalName", ""),
-        "entityType": entity.get("entityType", "other"),
-        "toolFamily": entity.get("toolFamily", ""),
-        "vendor": entity.get("vendor", ""),
-        "description": entity.get("description", ""),
-        "summary": entity.get("summary", ""),
-        "aliases": read_json(entity.get("aliasesJson", "[]"), []),
-        "goodFor": read_json(entity.get("goodForJson", "[]"), []),
-        "badAt": read_json(entity.get("badAtJson", "[]"), []),
-        "usedFor": read_json(entity.get("usedForJson", "[]"), []),
-        "betterThan": read_json(entity.get("betterThanJson", "[]"), []),
-        "worseThan": read_json(entity.get("worseThanJson", "[]"), []),
-        "officialUrl": entity.get("officialUrl", ""),
-        "sentiment": entity.get("sentiment", "mixed"),
-        "ratingAverage": float(entity.get("ratingAverage", 0.0) or 0.0),
-        "topTags": read_json(entity.get("topTagsJson", "[]"), []),
-        "topModalities": read_json(entity.get("topModalitiesJson", "[]"), []),
-        "topSurfaces": read_json(entity.get("topSurfacesJson", "[]"), []),
-        "experienceMix": read_json(entity.get("experienceMixJson", "{}"), {}),
-        "latestTickets": read_json(entity.get("latestTicketsJson", "[]"), []),
-        "stats": read_json(entity.get("statsJson", "{}"), {}),
-        "createdAt": entity.get("createdAt", now_iso()),
-        "updatedAt": entity.get("updatedAt", now_iso()),
-    }
-
-
-def source_record_to_table(source: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "PartitionKey": SOURCE_PARTITION_KEY,
-        "RowKey": source["id"],
-        "conversationId": source.get("conversationId", ""),
-        "kind": source.get("kind", "text"),
-        "submitterId": source.get("submitterId", ""),
-        "anonymousHandle": source.get("anonymousHandle", ""),
-        "blobPath": source.get("blobPath", ""),
-        "sourceUrl": source.get("sourceUrl", ""),
-        "filename": source.get("filename", ""),
-        "contentType": source.get("contentType", ""),
-        "extractedText": source.get("extractedText", ""),
-        "summary": source.get("summary", ""),
-        "moderationStatus": source.get("moderationStatus", "accepted"),
-        "redactionNotesJson": json.dumps(source.get("redactionNotes", [])),
-        "visibility": source.get("visibility", "private"),
-        "createdAt": source.get("createdAt", now_iso()),
-    }
-
-
-def table_to_source_record(entity: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": entity["RowKey"],
-        "conversationId": entity.get("conversationId", ""),
-        "kind": entity.get("kind", "text"),
-        "submitterId": entity.get("submitterId", ""),
-        "anonymousHandle": entity.get("anonymousHandle", ""),
-        "blobPath": entity.get("blobPath", ""),
-        "sourceUrl": entity.get("sourceUrl", ""),
-        "filename": entity.get("filename", ""),
-        "contentType": entity.get("contentType", ""),
-        "extractedText": entity.get("extractedText", ""),
-        "summary": entity.get("summary", ""),
-        "moderationStatus": entity.get("moderationStatus", "accepted"),
-        "redactionNotes": read_json(entity.get("redactionNotesJson", "[]"), []),
-        "visibility": entity.get("visibility", "private"),
-        "createdAt": entity.get("createdAt", now_iso()),
-    }
-
-
-def conversation_record_to_table(conversation: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "PartitionKey": CONVERSATION_PARTITION_KEY,
-        "RowKey": conversation["id"],
-        "title": conversation.get("title", ""),
-        "submitterId": conversation.get("submitterId", ""),
-        "anonymousHandle": conversation.get("anonymousHandle", ""),
-        "manageTokenHash": conversation.get("manageTokenHash", ""),
-        "sourceIdsJson": json.dumps(conversation.get("sourceIds", [])),
-        "groundedEntityIdsJson": json.dumps(conversation.get("groundedEntityIds", [])),
-        "latestReplySummary": conversation.get("latestReplySummary", ""),
-        "createdAt": conversation.get("createdAt", now_iso()),
-        "updatedAt": conversation.get("updatedAt", now_iso()),
-    }
-
-
-def table_to_conversation_record(entity: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": entity["RowKey"],
-        "title": entity.get("title", ""),
-        "submitterId": entity.get("submitterId", ""),
-        "anonymousHandle": entity.get("anonymousHandle", ""),
-        "manageTokenHash": entity.get("manageTokenHash", ""),
-        "sourceIds": read_json(entity.get("sourceIdsJson", "[]"), []),
-        "groundedEntityIds": read_json(entity.get("groundedEntityIdsJson", "[]"), []),
-        "latestReplySummary": entity.get("latestReplySummary", ""),
-        "createdAt": entity.get("createdAt", now_iso()),
-        "updatedAt": entity.get("updatedAt", now_iso()),
-    }
-
-
-def message_partition_key(conversation_id: str) -> str:
-    return f"MESSAGE-{conversation_id}"
-
-
-def message_record_to_table(message: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "PartitionKey": message_partition_key(message["conversationId"]),
-        "RowKey": message["id"],
-        "conversationId": message["conversationId"],
-        "role": message.get("role", "assistant"),
-        "text": message.get("text", ""),
-        "sourceIdsJson": json.dumps(message.get("sourceIds", [])),
-        "groundedEntityIdsJson": json.dumps(message.get("groundedEntityIds", [])),
-        "citationsJson": json.dumps(message.get("citations", [])),
-        "graphUpdatesJson": json.dumps(message.get("graphUpdates", [])),
-        "createdAt": message.get("createdAt", now_iso()),
-    }
-
-
-def table_to_message_record(entity: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": entity["RowKey"],
-        "conversationId": entity.get("conversationId", ""),
-        "role": entity.get("role", "assistant"),
-        "text": entity.get("text", ""),
-        "sourceIds": read_json(entity.get("sourceIdsJson", "[]"), []),
-        "groundedEntityIds": read_json(entity.get("groundedEntityIdsJson", "[]"), []),
-        "citations": read_json(entity.get("citationsJson", "[]"), []),
-        "graphUpdates": read_json(entity.get("graphUpdatesJson", "[]"), []),
-        "createdAt": entity.get("createdAt", now_iso()),
-    }
-
-
-def post_record_to_table(post: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "PartitionKey": POST_PARTITION_KEY,
-        "RowKey": post["id"],
-        "conversationId": post.get("conversationId", ""),
-        "submitterId": post.get("submitterId", ""),
-        "anonymousHandle": post.get("anonymousHandle", ""),
-        "text": post.get("text", ""),
-        "summary": post.get("summary", ""),
-        "createdAt": post.get("createdAt", now_iso()),
-        "updatedAt": post.get("updatedAt", now_iso()),
-    }
-
-
-def table_to_post_record(entity: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": entity["RowKey"],
-        "conversationId": entity.get("conversationId", ""),
-        "submitterId": entity.get("submitterId", ""),
-        "anonymousHandle": entity.get("anonymousHandle", ""),
-        "text": entity.get("text", ""),
-        "summary": entity.get("summary", ""),
-        "createdAt": entity.get("createdAt", now_iso()),
-        "updatedAt": entity.get("updatedAt", now_iso()),
-    }
-
-
-def claim_record_to_table(claim: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "PartitionKey": CLAIM_PARTITION_KEY,
-        "RowKey": claim["id"],
-        "subjectEntityIdsJson": json.dumps(claim.get("subjectEntityIds", [])),
-        "subjectNamesJson": json.dumps(claim.get("subjectNames", [])),
-        "claimText": claim.get("claimText", ""),
-        "claimType": claim.get("claimType", "observation"),
-        "stance": claim.get("stance", "neutral"),
-        "tagsJson": json.dumps(claim.get("tags", [])),
-        "sourceIdsJson": json.dumps(claim.get("sourceIds", [])),
-        "supportCount": int(claim.get("supportCount", 1)),
-        "opposeCount": int(claim.get("opposeCount", 0)),
-        "confidence": float(claim.get("confidence", 0.0) or 0.0),
-        "createdAt": claim.get("createdAt", now_iso()),
-        "updatedAt": claim.get("updatedAt", now_iso()),
-    }
-
-
-def table_to_claim_record(entity: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": entity["RowKey"],
-        "subjectEntityIds": read_json(entity.get("subjectEntityIdsJson", "[]"), []),
-        "subjectNames": read_json(entity.get("subjectNamesJson", "[]"), []),
-        "claimText": entity.get("claimText", ""),
-        "claimType": entity.get("claimType", "observation"),
-        "stance": entity.get("stance", "neutral"),
-        "tags": read_json(entity.get("tagsJson", "[]"), []),
-        "sourceIds": read_json(entity.get("sourceIdsJson", "[]"), []),
-        "supportCount": int(entity.get("supportCount", 1)),
-        "opposeCount": int(entity.get("opposeCount", 0)),
-        "confidence": float(entity.get("confidence", 0.0) or 0.0),
-        "createdAt": entity.get("createdAt", now_iso()),
-        "updatedAt": entity.get("updatedAt", now_iso()),
-    }
-
-
-def guide_record_to_table(guide: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "PartitionKey": GUIDE_PARTITION_KEY,
-        "RowKey": guide["id"],
-        "title": guide.get("title", ""),
-        "summary": guide.get("summary", ""),
-        "stepsJson": json.dumps(guide.get("steps", [])),
-        "subjectEntityIdsJson": json.dumps(guide.get("subjectEntityIds", [])),
-        "subjectNamesJson": json.dumps(guide.get("subjectNames", [])),
-        "sourceIdsJson": json.dumps(guide.get("sourceIds", [])),
-        "createdAt": guide.get("createdAt", now_iso()),
-        "updatedAt": guide.get("updatedAt", now_iso()),
-    }
-
-
-def table_to_guide_record(entity: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": entity["RowKey"],
-        "title": entity.get("title", ""),
-        "summary": entity.get("summary", ""),
-        "steps": read_json(entity.get("stepsJson", "[]"), []),
-        "subjectEntityIds": read_json(entity.get("subjectEntityIdsJson", "[]"), []),
-        "subjectNames": read_json(entity.get("subjectNamesJson", "[]"), []),
-        "sourceIds": read_json(entity.get("sourceIdsJson", "[]"), []),
-        "createdAt": entity.get("createdAt", now_iso()),
-        "updatedAt": entity.get("updatedAt", now_iso()),
-    }
-
-
-def question_record_to_table(question: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "PartitionKey": QUESTION_PARTITION_KEY,
-        "RowKey": question["id"],
-        "questionText": question.get("questionText", ""),
-        "subjectEntityIdsJson": json.dumps(question.get("subjectEntityIds", [])),
-        "subjectNamesJson": json.dumps(question.get("subjectNames", [])),
-        "sourceIdsJson": json.dumps(question.get("sourceIds", [])),
-        "status": question.get("status", "open"),
-        "createdAt": question.get("createdAt", now_iso()),
-        "updatedAt": question.get("updatedAt", now_iso()),
-    }
-
-
-def table_to_question_record(entity: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": entity["RowKey"],
-        "questionText": entity.get("questionText", ""),
-        "subjectEntityIds": read_json(entity.get("subjectEntityIdsJson", "[]"), []),
-        "subjectNames": read_json(entity.get("subjectNamesJson", "[]"), []),
-        "sourceIds": read_json(entity.get("sourceIdsJson", "[]"), []),
-        "status": entity.get("status", "open"),
-        "createdAt": entity.get("createdAt", now_iso()),
-        "updatedAt": entity.get("updatedAt", now_iso()),
-    }
-
-
-def answer_record_to_table(answer: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "PartitionKey": ANSWER_PARTITION_KEY,
-        "RowKey": answer["id"],
-        "conversationId": answer.get("conversationId", ""),
-        "title": answer.get("title", ""),
-        "answerText": answer.get("answerText", ""),
-        "questionId": answer.get("questionId", ""),
-        "groundedSourceIdsJson": json.dumps(answer.get("groundedSourceIds", [])),
-        "groundedEntityIdsJson": json.dumps(answer.get("groundedEntityIds", [])),
-        "createdAt": answer.get("createdAt", now_iso()),
-    }
-
 
 def infer_tool_family_from_name(name: str) -> str:
     normalized = normalize_for_match(name)
@@ -2069,6 +1043,119 @@ def search_live_web_results(query_text: str, max_results: int = 4) -> list[dict[
     return results[:max_results]
 
 
+def build_live_web_feed_items(force_refresh: bool = False) -> list[dict[str, Any]]:
+    cache = _live_web_feed_cache
+    if not force_refresh and cache["expires_at"] > time.time():
+        return list(cache["items"])
+
+    discovered: list[dict[str, Any]] = []
+    seen_urls: set[str] = set()
+    for query in read_query_list("LIVE_WEB_FEED_QUERIES", DEFAULT_LIVE_WEB_FEED_QUERIES)[:6]:
+        for result in search_live_web_results(query, max_results=2):
+            source_url = read_text(result.get("url"), 500)
+            if not source_url or source_url in seen_urls:
+                continue
+            seen_urls.add(source_url)
+            discovered.append(
+                {
+                    "id": f"live-{build_web_post_id(source_url)}",
+                    "kind": "live_web",
+                    "title": read_text(result.get("title"), 120),
+                    "summary": read_text(result.get("summary"), 220),
+                    "body": read_text(result.get("summary"), 420),
+                    "sourceUrl": source_url,
+                    "sourceDomain": read_text(result.get("sourceDomain"), 120),
+                    "sourceLabel": present_import_source_label(
+                        read_text(result.get("sourceDomain"), 120),
+                        "",
+                        source_url,
+                    ),
+                    "sourceType": infer_web_source_type(source_url, read_text(result.get("sourceDomain"), 120)),
+                    "mediaKind": infer_web_source_type(source_url, read_text(result.get("sourceDomain"), 120)),
+                    "mediaCaption": "Live from the web",
+                    "query": query,
+                    "authorLabel": "",
+                    "imageUrl": extract_youtube_thumbnail(source_url),
+                    "createdAt": now_iso(),
+                    "updatedAt": now_iso(),
+                    "tags": dedupe_texts(split_words(query), limit=4),
+                }
+            )
+
+    items = discovered[:8]
+    cache["items"] = items
+    cache["expires_at"] = time.time() + LIVE_WEB_CACHE_TTL_SECONDS
+    return list(items)
+
+
+def build_preview_from_search_result(result: dict[str, Any]) -> dict[str, Any]:
+    source_url = read_text(result.get("url"), 1800)
+    domain = normalize_domain(urlparse(source_url).hostname or "")
+    preview = {
+        "url": source_url,
+        "domain": domain,
+        "title": read_text(result.get("title"), 180),
+        "description": read_text(result.get("summary"), 320),
+        "excerpt": read_text(result.get("summary"), 1200),
+        "siteName": present_import_source_label(domain, "", source_url),
+        "sourceLabel": present_import_source_label(domain, "", source_url),
+        "sourceType": infer_web_source_type(source_url, domain),
+        "imageUrl": extract_youtube_thumbnail(source_url),
+        "publishedAt": "",
+        "authorName": "",
+    }
+    try:
+        fetched = extract_web_import_preview(source_url)
+    except Exception:
+        return preview
+    preview.update({key: value for key, value in fetched.items() if value})
+    return preview
+
+
+def crawl_web_feed(
+    queries: list[str] | None = None,
+    *,
+    max_results_per_query: int | None = None,
+    max_items: int | None = None,
+) -> dict[str, Any]:
+    active_queries = [read_text(item, 200) for item in (queries or read_query_list("WEB_CRAWL_QUERIES", DEFAULT_WEB_CRAWL_QUERIES))]
+    active_queries = [item for item in active_queries if item]
+    if not active_queries:
+        return {"queryCount": 0, "discoveredCount": 0, "storedCount": 0, "items": []}
+
+    per_query = max(1, min(int(max_results_per_query or os.getenv("WEB_CRAWL_MAX_RESULTS_PER_QUERY", "4") or 4), 6))
+    item_limit = max(1, min(int(max_items or os.getenv("WEB_CRAWL_MAX_ITEMS", "16") or 16), 32))
+    discovered: list[tuple[str, dict[str, Any]]] = []
+    seen_urls: set[str] = set()
+
+    for query in active_queries:
+        results = search_live_web_results(query, max_results=per_query)
+        for result in results:
+            source_url = read_text(result.get("url"), 1800)
+            if not source_url or source_url in seen_urls:
+                continue
+            seen_urls.add(source_url)
+            discovered.append((query, result))
+            if len(discovered) >= item_limit:
+                break
+        if len(discovered) >= item_limit:
+            break
+
+    stored_items: list[dict[str, Any]] = []
+    for query, result in discovered:
+        preview = build_preview_from_search_result(result)
+        generated = compose_web_post(preview, query, read_text(result.get("summary"), 320))
+        stored_items.append(upsert_web_post_record(preview, generated, query))
+
+    persist_crawl_run(len(active_queries), len(discovered), len(stored_items), "Daily web crawl")
+    return {
+        "queryCount": len(active_queries),
+        "discoveredCount": len(discovered),
+        "storedCount": len(stored_items),
+        "items": stored_items,
+    }
+
+
 def score_text_match(blob: str, query: str) -> float:
     normalized_blob = normalize_for_match(blob)
     normalized_query = normalize_for_match(query)
@@ -2315,6 +1402,12 @@ def list_posts() -> list[dict[str, Any]]:
     return sorted(posts, key=lambda item: (item.get("createdAt", ""), item.get("id", "")), reverse=True)
 
 
+def list_web_posts(limit: int | None = None) -> list[dict[str, Any]]:
+    items = [table_to_web_post_record(row) for row in list_rows(WEB_POST_PARTITION_KEY)]
+    items = sorted(items, key=lambda item: (item.get("updatedAt", ""), item.get("id", "")), reverse=True)
+    return items[:limit] if limit else items
+
+
 def create_post_record(
     text: str,
     submitter_id: str,
@@ -2338,6 +1431,141 @@ def create_post_record(
         "updatedAt": now_iso(),
     }
     upsert_row(post_record_to_table(record))
+    return record
+
+
+def build_web_post_fallback(
+    preview: dict[str, Any],
+    query_text: str,
+    search_summary: str = "",
+) -> dict[str, Any]:
+    source_type = read_text(preview.get("sourceType"), 40) or "article"
+    title = read_text(preview.get("title"), 120)
+    description = read_text(preview.get("description"), 320)
+    excerpt = read_text(preview.get("excerpt"), 900)
+    body = read_text(search_summary or excerpt or description, 560)
+    tags = dedupe_texts(
+        [
+            source_type,
+            preview.get("sourceLabel", ""),
+            *split_words(query_text)[:3],
+        ],
+        limit=5,
+    )
+    return {
+        "title": title or "Fresh AI slop source",
+        "summary": read_text(description or search_summary or excerpt, 220) or title,
+        "body": body or title,
+        "angle": read_text(query_text, 120) or "Latest web signal",
+        "source_type": source_type,
+        "media_caption": read_text(preview.get("sourceLabel"), 80) or "Source preview",
+        "tags": tags,
+    }
+
+
+def compose_web_post(
+    preview: dict[str, Any],
+    query_text: str,
+    search_summary: str = "",
+) -> dict[str, Any]:
+    fallback = build_web_post_fallback(preview, query_text, search_summary)
+    if not can_use_ai():
+        return fallback
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are writing a tight feed post for Stop The Slop, a public board about AI failures, spam, drift, hype, and messy real-world behavior. "
+                "Turn the source into a bespoke post that feels native to the board. Stay factual and grounded in the supplied source only. "
+                "Do not invent quotes, claims, dates, or details. Keep the title punchy, the summary scannable, and the body to one short paragraph. "
+                "Treat blog posts, videos, complaints, and forum discussions as valid source types. Tags should be short and reusable."
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(
+                {
+                    "queryText": read_text(query_text, 180),
+                    "preview": {
+                        "url": read_text(preview.get("url"), 400),
+                        "title": read_text(preview.get("title"), 180),
+                        "description": read_text(preview.get("description"), 320),
+                        "excerpt": read_text(preview.get("excerpt"), 1200),
+                        "sourceLabel": read_text(preview.get("sourceLabel"), 120),
+                        "sourceType": read_text(preview.get("sourceType"), 40),
+                        "authorName": read_text(preview.get("authorName"), 120),
+                    },
+                    "searchSummary": read_text(search_summary, 320),
+                },
+                ensure_ascii=True,
+            ),
+        },
+    ]
+    data = call_ai_json(messages, WEB_POST_SCHEMA, max_tokens=800)
+    if not data:
+        return fallback
+    return {
+        "title": read_text(data.get("title"), 120) or fallback["title"],
+        "summary": read_text(data.get("summary"), 220) or fallback["summary"],
+        "body": read_text(data.get("body"), 560) or fallback["body"],
+        "angle": read_text(data.get("angle"), 120) or fallback["angle"],
+        "source_type": read_text(data.get("source_type"), 40) or fallback["source_type"],
+        "media_caption": read_text(data.get("media_caption"), 80) or fallback["media_caption"],
+        "tags": dedupe_texts(data.get("tags", []), limit=6) or fallback["tags"],
+    }
+
+
+def upsert_web_post_record(
+    preview: dict[str, Any],
+    generated: dict[str, Any],
+    query_text: str,
+) -> dict[str, Any]:
+    source_url = read_text(preview.get("url"), 1800)
+    if not source_url:
+        raise ValueError("Web post is missing a source URL.")
+
+    record_id = build_web_post_id(source_url)
+    existing = get_row(WEB_POST_PARTITION_KEY, record_id)
+    current = table_to_web_post_record(existing) if existing else {
+        "id": record_id,
+        "createdAt": now_iso(),
+    }
+    record = {
+        **current,
+        "id": record_id,
+        "title": read_text(generated.get("title"), 120) or current.get("title", ""),
+        "summary": read_text(generated.get("summary"), 220) or current.get("summary", ""),
+        "body": read_text(generated.get("body"), 560) or current.get("body", ""),
+        "angle": read_text(generated.get("angle"), 120) or current.get("angle", ""),
+        "query": read_text(query_text, 180) or current.get("query", ""),
+        "sourceUrl": source_url,
+        "sourceDomain": read_text(preview.get("domain"), 120) or current.get("sourceDomain", ""),
+        "sourceLabel": read_text(preview.get("sourceLabel"), 120) or current.get("sourceLabel", ""),
+        "sourceType": read_text(generated.get("source_type"), 40)
+        or read_text(preview.get("sourceType"), 40)
+        or current.get("sourceType", "article"),
+        "authorLabel": read_text(preview.get("authorName"), 120) or current.get("authorLabel", ""),
+        "mediaKind": read_text(preview.get("sourceType"), 40) or current.get("mediaKind", ""),
+        "mediaCaption": read_text(generated.get("media_caption"), 80) or current.get("mediaCaption", ""),
+        "imageUrl": read_text(preview.get("imageUrl"), 1800) or current.get("imageUrl", ""),
+        "tags": dedupe_texts([*(current.get("tags", []) or []), *(generated.get("tags", []) or [])], limit=8),
+        "updatedAt": now_iso(),
+    }
+    upsert_row(web_post_record_to_table(record))
+    return record
+
+
+def persist_crawl_run(query_count: int, discovered_count: int, stored_count: int, notes: str = "") -> dict[str, Any]:
+    record = {
+        "id": build_row_key("crawl"),
+        "queryCount": int(query_count or 0),
+        "discoveredCount": int(discovered_count or 0),
+        "storedCount": int(stored_count or 0),
+        "notes": read_text(notes, 300),
+        "createdAt": now_iso(),
+    }
+    upsert_row(crawl_run_record_to_table(record))
     return record
 
 
@@ -2797,28 +2025,75 @@ def derive_cluster_items(claims: list[dict[str, Any]], entities_by_id: dict[str,
     return sorted(items, key=lambda item: (-item.get("supportCount", 0), item.get("updatedAt", "")))[:6]
 
 
+def build_home_feed_items() -> list[dict[str, Any]]:
+    community_items = [
+        {
+            "id": post["id"],
+            "kind": "post",
+            "text": post.get("text", ""),
+            "summary": post.get("summary", ""),
+            "anonymousHandle": post.get("anonymousHandle", ""),
+            "createdAt": post.get("createdAt", ""),
+            "updatedAt": post.get("updatedAt", ""),
+        }
+        for post in list_posts()[:18]
+    ]
+    curated_web_items = [
+        {
+            "id": item["id"],
+            "kind": "web_post",
+            "title": item.get("title", ""),
+            "summary": item.get("summary", ""),
+            "body": item.get("body", ""),
+            "angle": item.get("angle", ""),
+            "sourceUrl": item.get("sourceUrl", ""),
+            "sourceDomain": item.get("sourceDomain", ""),
+            "sourceLabel": item.get("sourceLabel", ""),
+            "sourceType": item.get("sourceType", "article"),
+            "authorLabel": item.get("authorLabel", ""),
+            "mediaKind": item.get("mediaKind", ""),
+            "mediaCaption": item.get("mediaCaption", ""),
+            "imageUrl": item.get("imageUrl", ""),
+            "createdAt": item.get("createdAt", ""),
+            "updatedAt": item.get("updatedAt", ""),
+            "tags": item.get("tags", []),
+        }
+        for item in list_web_posts(limit=14)
+    ]
+    live_web_items = build_live_web_feed_items()[:6]
+
+    mixed: list[dict[str, Any]] = []
+    streams = {
+        "community": community_items[:],
+        "curated": curated_web_items[:],
+        "live": live_web_items[:],
+    }
+    order = ("community", "curated", "community", "live", "curated")
+    while len(mixed) < MAX_FEED_ITEMS and any(streams.values()):
+        for key in order:
+            if streams[key]:
+                mixed.append(streams[key].pop(0))
+            if len(mixed) >= MAX_FEED_ITEMS:
+                break
+    return mixed[:MAX_FEED_ITEMS]
+
+
 def build_feed() -> dict[str, Any]:
-    posts = list_posts()[:MAX_FEED_ITEMS]
+    posts = list_posts()
+    web_posts = list_web_posts(limit=18)
+    live_items = build_live_web_feed_items()
+    items = build_home_feed_items()
     return {
         "metrics": {
             "postCount": len(posts),
-            "sourceCount": len(posts),
+            "webPostCount": len(web_posts),
+            "liveResultCount": len(live_items),
+            "sourceCount": len(posts) + len(web_posts),
             "entityCount": 0,
             "claimCount": 0,
             "guideCount": 0,
         },
-        "items": [
-            {
-                "id": post["id"],
-                "kind": "post",
-                "text": post.get("text", ""),
-                "summary": post.get("summary", ""),
-                "anonymousHandle": post.get("anonymousHandle", ""),
-                "createdAt": post.get("createdAt", ""),
-                "updatedAt": post.get("updatedAt", ""),
-            }
-            for post in posts
-        ],
+        "items": items,
         "featuredEntities": [],
     }
 

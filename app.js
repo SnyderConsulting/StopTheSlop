@@ -453,14 +453,19 @@ function renderArtifactGrid(target, items, emptyTitle, emptyBody, renderItem) {
 function renderComplaintStream(items) {
   if (!refs.homeFeed) return;
   if (!items.length) {
-    refs.homeFeed.innerHTML = renderStateCard("No complaints yet", "Nothing has been posted yet. Be the first to vent about AI.");
+    refs.homeFeed.innerHTML = renderStateCard("Nothing in the feed yet", "Be the first to vent about AI while the web crawl starts filling in outside signals.");
     return;
   }
   refs.homeFeed.innerHTML = items.map(renderComplaintCard).join("");
 }
 
 function renderComplaintCard(item) {
+  if (item.kind === "web_post" || item.kind === "live_web") {
+    return renderWebFeedCard(item);
+  }
+
   const meta = [
+    "Community complaint",
     item.anonymousHandle || "anon-user",
     item.createdAt ? formatDate(item.createdAt) : "",
   ]
@@ -468,9 +473,63 @@ function renderComplaintCard(item) {
     .join(" · ");
 
   return `
-    <article class="complaint-card">
+    <article class="complaint-card complaint-card--post">
       <div class="complaint-meta">${escapeHtml(meta)}</div>
-      <p class="complaint-body">${escapeHtml(item.text || item.summary || "")}</p>
+      <div class="complaint-body">${renderRichText(item.text || item.summary || "")}</div>
+    </article>
+  `;
+}
+
+function renderWebFeedCard(item) {
+  const kindLabel = item.kind === "live_web" ? "Live Web" : "Crawler Post";
+  const sourceBits = [
+    kindLabel,
+    item.sourceType ? formatClaimType(item.sourceType) : "",
+    item.sourceLabel || item.sourceDomain || "",
+    item.createdAt ? formatDate(item.createdAt) : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const title = item.title || item.summary || "Fresh web signal";
+  const summary = item.summary && item.summary !== title ? item.summary : "";
+  const body = item.body || item.summary || "";
+  const angle = item.angle ? `<span class="complaint-pill complaint-pill--angle">${escapeHtml(item.angle)}</span>` : "";
+  const tags = Array.isArray(item.tags)
+    ? item.tags.slice(0, 4).map((tag) => `<span class="complaint-pill">${escapeHtml(tag)}</span>`).join("")
+    : "";
+  const image = item.imageUrl
+    ? `
+      <div class="complaint-media">
+        <img src="${escapeHtml(item.imageUrl)}" alt="${escapeHtml(title)}" loading="lazy" />
+      </div>
+    `
+    : "";
+  const sourceLink = item.sourceUrl
+    ? `<a class="complaint-source-link" href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noreferrer">Open source</a>`
+    : "";
+
+  return `
+    <article class="complaint-card complaint-card--web complaint-card--${escapeHtml(item.kind)}">
+      ${image}
+      <div class="complaint-meta">${escapeHtml(sourceBits)}</div>
+      <div class="complaint-head">
+        <h3 class="complaint-title">${escapeHtml(title)}</h3>
+        ${sourceLink}
+      </div>
+      ${summary ? `<p class="complaint-summary">${escapeHtml(summary)}</p>` : ""}
+      ${body ? `<div class="complaint-body complaint-body--web">${renderRichText(body)}</div>` : ""}
+      ${(angle || tags || item.authorLabel || item.mediaCaption)
+        ? `
+        <div class="complaint-footer">
+          <div class="complaint-pills">
+            ${angle}
+            ${tags}
+            ${item.authorLabel ? `<span class="complaint-pill">${escapeHtml(item.authorLabel)}</span>` : ""}
+          </div>
+          ${item.mediaCaption ? `<span class="complaint-caption">${escapeHtml(item.mediaCaption)}</span>` : ""}
+        </div>
+      `
+        : ""}
     </article>
   `;
 }
