@@ -3,9 +3,6 @@ const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
 const DEFAULT_MCP_BASE_URL = "";
 const SESSION_STORAGE_KEY = "sts_session_token";
 const CONVERSATION_TOKEN_STORAGE_KEY = "sts_conversation_tokens_v1";
-const ONBOARDING_STORAGE_KEY = "sts_onboarding_v1";
-const VISITOR_STORAGE_KEY = "sts_visitor_id_v1";
-const ONBOARDING_SURVEY_VERSION = "20260403a";
 
 const refs = {
   authSlot: document.getElementById("auth-slot"),
@@ -45,6 +42,9 @@ const refs = {
   mcpResources: document.getElementById("mcp-resources"),
   mcpCommand: document.getElementById("mcp-command"),
   mcpInspectorCommand: document.getElementById("mcp-inspector-command"),
+  postOpen: document.getElementById("post-open"),
+  postSheet: document.getElementById("post-sheet"),
+  postClose: document.getElementById("post-close"),
 };
 
 const state = {
@@ -61,18 +61,11 @@ const state = {
   entities: [],
   selectedEntityId: "",
   booted: false,
-  onboardingSubmitting: false,
 };
 
 void init();
 
 async function init() {
-  if (shouldRequireOnboarding()) {
-    renderOnboardingGate();
-    wireOnboardingGate();
-    return;
-  }
-
   await bootApp();
 }
 
@@ -120,142 +113,14 @@ async function bootApp() {
   }
 }
 
-function shouldRequireOnboarding() {
-  const onboarding = readOnboardingState();
-  return onboarding.surveyVersion !== ONBOARDING_SURVEY_VERSION || !onboarding.completedAt;
-}
-
-function renderOnboardingGate() {
-  if (document.getElementById("onboarding-gate")) return;
-  document.body.classList.add("is-onboarding-locked");
-  const gate = document.createElement("section");
-  gate.id = "onboarding-gate";
-  gate.className = "onboarding-gate";
-  gate.innerHTML = `
-    <div class="onboarding-shell">
-      <div class="onboarding-copy">
-        <p class="eyebrow">Before You Continue</p>
-        <h1>Help define what Stop The Slop should be.</h1>
-        <p class="hero-copy-text">
-          We are still figuring out who this product is for and what it should actually do. Answer these questions once
-          to unlock the site. No account required.
-        </p>
-      </div>
-
-      <form class="composer-form onboarding-form" id="onboarding-form">
-        <label class="signal-textarea onboarding-field">
-          <span>How do you mostly use AI right now?</span>
-          <select name="aiUseCase" required>
-            <option value="">Choose one</option>
-            <option value="coding">Coding or debugging</option>
-            <option value="research">Research or analysis</option>
-            <option value="writing">Writing or editing</option>
-            <option value="media">Images, audio, or video</option>
-            <option value="ops">Operations, support, or admin work</option>
-            <option value="other">Something else</option>
-          </select>
-        </label>
-
-        <label class="signal-textarea onboarding-field">
-          <span>What does "AI slop" mean to you?</span>
-          <textarea
-            name="slopMeaning"
-            rows="5"
-            maxlength="2400"
-            minlength="16"
-            placeholder="Example: low-effort AI output that wastes time, hides the original source, or makes it harder to tell what is trustworthy."
-            required
-          ></textarea>
-        </label>
-
-        <label class="signal-textarea onboarding-field">
-          <span>If Stop The Slop were worth coming back to, what would it help you do?</span>
-          <textarea
-            name="desiredProduct"
-            rows="5"
-            maxlength="2400"
-            minlength="16"
-            placeholder="Example: quickly check whether a tool is drifting, compare what serious users think, or find reliable workflows for a specific job."
-            required
-          ></textarea>
-        </label>
-
-        <div class="form-footer onboarding-footer">
-          <p class="field-note" data-onboarding-status>
-            Required once per browser. Your answers help shape the product direction.
-          </p>
-          <div class="form-actions">
-            <button class="button primary" type="submit" data-onboarding-submit>Continue To Site</button>
-          </div>
-        </div>
-      </form>
-    </div>
-  `;
-  document.body.prepend(gate);
-}
-
-function wireOnboardingGate() {
-  const form = document.getElementById("onboarding-form");
-  form?.addEventListener("submit", handleOnboardingSubmit);
-}
-
-async function handleOnboardingSubmit(event) {
-  event.preventDefault();
-  if (state.onboardingSubmitting) return;
-
-  const form = event.currentTarget;
-  const status = form.querySelector("[data-onboarding-status]");
-  const submitButton = form.querySelector("[data-onboarding-submit]");
-  const formData = new FormData(form);
-
-  state.onboardingSubmitting = true;
-  if (status) {
-    status.textContent = "Saving your answers and opening the site...";
-  }
-  setButtonBusy(submitButton, true, "Opening...");
-
-  try {
-    const response = await apiFetch("/api/onboarding", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        visitorId: readOrCreateVisitorId(),
-        surveyVersion: ONBOARDING_SURVEY_VERSION,
-        aiUseCase: String(formData.get("aiUseCase") || ""),
-        slopMeaning: String(formData.get("slopMeaning") || ""),
-        desiredProduct: String(formData.get("desiredProduct") || ""),
-        entryPath: `${window.location.pathname}${window.location.search}`,
-        referrer: document.referrer || "",
-      }),
-    });
-
-    storeOnboardingState(response);
-    await bootApp();
-    unlockOnboardingGate();
-  } catch (error) {
-    if (status) {
-      status.textContent = error.message || "Could not save your answers. Try again.";
-    }
-  } finally {
-    state.onboardingSubmitting = false;
-    setButtonBusy(submitButton, false, "Continue To Site");
-  }
-}
-
-function unlockOnboardingGate() {
-  document.body.classList.remove("is-onboarding-locked");
-  document.getElementById("onboarding-gate")?.remove();
-}
-
 function wireHomePage() {
-  refs.composerSeed?.addEventListener("click", seedComposerExample);
   refs.composerForm?.addEventListener("submit", handleComposerSubmit);
-  refs.homePromptChips?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-prompt]");
-    if (!button) return;
-    setComposerPrompt(button.getAttribute("data-prompt") || "");
+  refs.postOpen?.addEventListener("click", openPostSheet);
+  refs.postClose?.addEventListener("click", closePostSheet);
+  refs.postSheet?.addEventListener("click", (event) => {
+    if (event.target.closest("[data-close-post]")) {
+      closePostSheet();
+    }
   });
 }
 
@@ -301,35 +166,7 @@ function wireWikiPage() {
 }
 
 function renderHome() {
-  const collections = buildHomeCollections(state.feed);
-  renderArtifactGrid(
-    refs.homeNoticing,
-    collections.noticing,
-    "Nothing notable yet",
-    "When strong patterns start repeating, this is where the public reality check will show up.",
-    renderFeedCard
-  );
-  renderArtifactGrid(
-    refs.homeTopics,
-    collections.topics,
-    "No topic pages yet",
-    "Topic pages appear once the same tools, models, and workflows keep resurfacing.",
-    renderFeaturedEntityCard
-  );
-  renderArtifactGrid(
-    refs.homeGuides,
-    collections.guides,
-    "No reusable guides yet",
-    "The site will surface concise workflows once multiple submissions converge on them.",
-    renderFeedCard
-  );
-  renderArtifactGrid(
-    refs.homeQuestions,
-    collections.questions,
-    "No open questions yet",
-    "Broad, reusable questions that still need better evidence will show up here.",
-    renderFeedCard
-  );
+  renderComplaintStream(Array.isArray(state.feed?.items) ? state.feed.items : []);
 }
 
 async function loadConversationPage() {
@@ -433,24 +270,28 @@ async function handleComposerSubmit(event) {
   }
 
   state.homeSubmitting = true;
-  setButtonBusy(refs.composerSubmit, true, "Thinking...");
-  renderInlineNotice(refs.composerAuthNote, "Starting a private thread, grounding an answer, and distilling what is reusable.");
+  setButtonBusy(refs.composerSubmit, true, "Posting...");
+  renderInlineNotice(refs.composerAuthNote, "Posting your complaint publicly.");
 
   try {
-    const formData = new FormData(refs.composerForm);
-    const conversation = await apiFetch("/api/conversations", {
+    const post = await apiFetch("/api/posts", {
       method: "POST",
-      body: formData,
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text: refs.composerText?.value || "",
+      }),
     });
-    if (conversation.manageToken) {
-      storeConversationToken(conversation.id, conversation.manageToken);
-    }
-    window.location.href = buildConversationHref(conversation.id, conversation.manageToken);
+    refs.composerForm.reset();
+    clearInlineNotice(refs.composerAuthNote);
+    prependHomePost(post);
+    closePostSheet();
   } catch (error) {
-    renderInlineNotice(refs.composerAuthNote, error.message || "The submission could not be processed.");
+    renderInlineNotice(refs.composerAuthNote, error.message || "The complaint could not be posted.");
   } finally {
     state.homeSubmitting = false;
-    setButtonBusy(refs.composerSubmit, false, "Start Chat");
+    setButtonBusy(refs.composerSubmit, false, "Post Complaint");
   }
 }
 
@@ -512,6 +353,22 @@ function setComposerPrompt(prompt) {
   refs.composerText?.focus();
 }
 
+function openPostSheet() {
+  if (!refs.postSheet) return;
+  refs.postSheet.hidden = false;
+  document.body.classList.add("is-post-sheet-open");
+  window.setTimeout(() => {
+    refs.composerText?.focus();
+  }, 40);
+}
+
+function closePostSheet() {
+  if (!refs.postSheet) return;
+  refs.postSheet.hidden = true;
+  document.body.classList.remove("is-post-sheet-open");
+  refs.postOpen?.focus();
+}
+
 function renderAuthSlot() {
   if (!refs.authSlot) return;
 
@@ -536,9 +393,7 @@ function renderAuthSlot() {
 }
 
 function renderAuthNotes() {
-  const note = state.session?.authenticated
-    ? `Signed in as ${state.session.user.publicHandle || state.session.user.name}. Your raw submission stays private. The public site only shows distilled memory. Paste any URL directly into the message.`
-    : "You can post anonymously. Your raw submission stays private, and the public site only shows distilled memory. Paste any URL directly into the message.";
+  const note = "Anonymous. Public. Text only. Vent freely.";
   renderInlineNotice(refs.composerAuthNote, note, true);
   renderInlineNotice(refs.conversationAuthNote, note, true);
 }
@@ -593,6 +448,40 @@ function renderArtifactGrid(target, items, emptyTitle, emptyBody, renderItem) {
     return;
   }
   target.innerHTML = items.map(renderItem).join("");
+}
+
+function renderComplaintStream(items) {
+  if (!refs.homeFeed) return;
+  if (!items.length) {
+    refs.homeFeed.innerHTML = renderStateCard("No complaints yet", "Nothing has been posted yet. Be the first to vent about AI.");
+    return;
+  }
+  refs.homeFeed.innerHTML = items.map(renderComplaintCard).join("");
+}
+
+function renderComplaintCard(item) {
+  const meta = [
+    item.anonymousHandle || "anon-user",
+    item.createdAt ? formatDate(item.createdAt) : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return `
+    <article class="complaint-card">
+      <div class="complaint-meta">${escapeHtml(meta)}</div>
+      <p class="complaint-body">${escapeHtml(item.text || item.summary || "")}</p>
+    </article>
+  `;
+}
+
+function prependHomePost(post) {
+  const existing = Array.isArray(state.feed?.items) ? state.feed.items : [];
+  state.feed = {
+    ...(state.feed || {}),
+    items: [post, ...existing].slice(0, 48),
+  };
+  renderHome();
 }
 
 function buildHomeCollections(feed) {
@@ -1301,48 +1190,6 @@ function readStoredSessionToken() {
   }
 }
 
-function readOnboardingState() {
-  try {
-    return JSON.parse(window.localStorage.getItem(ONBOARDING_STORAGE_KEY) || "{}");
-  } catch (_error) {
-    return {};
-  }
-}
-
-function storeOnboardingState(payload) {
-  try {
-    window.localStorage.setItem(
-      ONBOARDING_STORAGE_KEY,
-      JSON.stringify({
-        visitorId: payload?.visitorId || readOrCreateVisitorId(),
-        completedAt: payload?.completedAt || new Date().toISOString(),
-        surveyVersion: payload?.surveyVersion || ONBOARDING_SURVEY_VERSION,
-      })
-    );
-  } catch (_error) {
-    // Ignore storage failures. The response was still captured server-side.
-  }
-}
-
-function readOrCreateVisitorId() {
-  try {
-    const existing = window.localStorage.getItem(VISITOR_STORAGE_KEY) || "";
-    if (existing) return existing;
-    const created = buildVisitorId();
-    window.localStorage.setItem(VISITOR_STORAGE_KEY, created);
-    return created;
-  } catch (_error) {
-    return buildVisitorId();
-  }
-}
-
-function buildVisitorId() {
-  if (window.crypto?.randomUUID) {
-    return `visitor-${window.crypto.randomUUID()}`;
-  }
-  return `visitor-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
-}
-
 function readConversationTokens() {
   try {
     return JSON.parse(window.localStorage.getItem(CONVERSATION_TOKEN_STORAGE_KEY) || "{}");
@@ -1437,6 +1284,8 @@ function entityStats(entity) {
 
 function formatKind(kind) {
   switch (kind) {
+    case "post":
+      return "Complaint";
     case "claim":
       return "Takeaway";
     case "guide":

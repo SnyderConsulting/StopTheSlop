@@ -180,6 +180,7 @@ ANSWER_PARTITION_KEY = "ANSWER"
 CLAIM_PARTITION_KEY = "CLAIM"
 GUIDE_PARTITION_KEY = "GUIDE"
 QUESTION_PARTITION_KEY = "QUESTION"
+POST_PARTITION_KEY = "POST"
 ENTITY_PARTITION_KEY = "ENTITY"
 USER_PARTITION_KEY = "USER"
 META_PARTITION_KEY = "META"
@@ -1459,6 +1460,33 @@ def table_to_message_record(entity: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def post_record_to_table(post: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "PartitionKey": POST_PARTITION_KEY,
+        "RowKey": post["id"],
+        "conversationId": post.get("conversationId", ""),
+        "submitterId": post.get("submitterId", ""),
+        "anonymousHandle": post.get("anonymousHandle", ""),
+        "text": post.get("text", ""),
+        "summary": post.get("summary", ""),
+        "createdAt": post.get("createdAt", now_iso()),
+        "updatedAt": post.get("updatedAt", now_iso()),
+    }
+
+
+def table_to_post_record(entity: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": entity["RowKey"],
+        "conversationId": entity.get("conversationId", ""),
+        "submitterId": entity.get("submitterId", ""),
+        "anonymousHandle": entity.get("anonymousHandle", ""),
+        "text": entity.get("text", ""),
+        "summary": entity.get("summary", ""),
+        "createdAt": entity.get("createdAt", now_iso()),
+        "updatedAt": entity.get("updatedAt", now_iso()),
+    }
+
+
 def claim_record_to_table(claim: dict[str, Any]) -> dict[str, Any]:
     return {
         "PartitionKey": CLAIM_PARTITION_KEY,
@@ -2282,6 +2310,37 @@ def list_questions() -> list[dict[str, Any]]:
     return [table_to_question_record(row) for row in list_rows(QUESTION_PARTITION_KEY)]
 
 
+def list_posts() -> list[dict[str, Any]]:
+    posts = [table_to_post_record(row) for row in list_rows(POST_PARTITION_KEY)]
+    return sorted(posts, key=lambda item: (item.get("createdAt", ""), item.get("id", "")), reverse=True)
+
+
+def create_post_record(
+    text: str,
+    submitter_id: str,
+    anonymous_handle: str,
+    *,
+    conversation_id: str = "",
+) -> dict[str, Any]:
+    body = read_text(text, 6000)
+    if not body:
+        raise ValueError("Type something before posting.")
+
+    summary = read_text(" ".join(body.split()), 220)
+    record = {
+        "id": build_row_key("post"),
+        "conversationId": conversation_id,
+        "submitterId": submitter_id,
+        "anonymousHandle": anonymous_handle,
+        "text": body,
+        "summary": summary,
+        "createdAt": now_iso(),
+        "updatedAt": now_iso(),
+    }
+    upsert_row(post_record_to_table(record))
+    return record
+
+
 def upsert_claim(
     claim_text: str,
     claim_type: str,
@@ -2739,85 +2798,28 @@ def derive_cluster_items(claims: list[dict[str, Any]], entities_by_id: dict[str,
 
 
 def build_feed() -> dict[str, Any]:
-    ensure_legacy_graph_migration()
-    entities = [entity for entity in list_entities() if is_publishable_entity_record(entity)]
-    claims = [claim for claim in list_claims() if is_publishable_claim_record(claim)]
-    guides = list_guides()
-    questions = [question for question in list_questions() if is_publishable_question_record(question)]
-    entities_by_id = {entity["id"]: entity for entity in entities}
-
-    claim_items = [
-        {
-            "id": claim["id"],
-            "kind": "claim",
-            "title": claim.get("claimText", ""),
-            "summary": ", ".join(filter_publishable_subject_names(claim.get("subjectNames", []))),
-            "entityId": read_text((claim.get("subjectEntityIds") or [""])[0], 120),
-            "supportCount": int(claim.get("supportCount", 0)),
-            "updatedAt": claim.get("updatedAt", ""),
-            "tags": claim.get("tags", []),
-        }
-        for claim in sorted(
-            claims,
-            key=lambda item: (-int(item.get("supportCount", 0)), item.get("updatedAt", "")),
-        )[:10]
-    ]
-    guide_items = [
-        {
-            "id": guide["id"],
-            "kind": "guide",
-            "title": guide.get("title", ""),
-            "summary": guide.get("summary", ""),
-            "entityId": read_text((guide.get("subjectEntityIds") or [""])[0], 120),
-            "supportCount": len(guide.get("sourceIds", [])),
-            "updatedAt": guide.get("updatedAt", ""),
-        }
-        for guide in sorted(guides, key=lambda item: item.get("updatedAt", ""), reverse=True)[:8]
-    ]
-    question_items = [
-        {
-            "id": question["id"],
-            "kind": "question",
-            "title": question.get("questionText", ""),
-            "summary": ", ".join(question.get("subjectNames", [])) or question.get("status", "open"),
-            "entityId": read_text((question.get("subjectEntityIds") or [""])[0], 120),
-            "supportCount": len(question.get("sourceIds", [])),
-            "updatedAt": question.get("updatedAt", ""),
-        }
-        for question in sorted(questions, key=lambda item: item.get("updatedAt", ""), reverse=True)[:8]
-    ]
-    entity_items = [
-        {
-            "id": entity["id"],
-            "kind": "entity",
-            "title": entity.get("canonicalName", ""),
-            "summary": entity.get("summary", "") or entity.get("description", ""),
-            "entityId": entity["id"],
-            "supportCount": int((entity.get("stats") or {}).get("sourceCount", 0)),
-            "updatedAt": entity.get("updatedAt", ""),
-        }
-        for entity in entities[:8]
-    ]
-    cluster_items = derive_cluster_items(claims, entities_by_id)
-
-    buckets = [claim_items, guide_items, cluster_items, question_items, entity_items]
-    mixed: list[dict[str, Any]] = []
-    while any(buckets) and len(mixed) < MAX_FEED_ITEMS:
-        for bucket in buckets:
-            if bucket:
-                mixed.append(bucket.pop(0))
-                if len(mixed) >= MAX_FEED_ITEMS:
-                    break
-
+    posts = list_posts()[:MAX_FEED_ITEMS]
     return {
         "metrics": {
-            "sourceCount": len(list_rows(SOURCE_PARTITION_KEY)),
-            "entityCount": len(entities),
-            "claimCount": len(claims),
-            "guideCount": len(guides),
+            "postCount": len(posts),
+            "sourceCount": len(posts),
+            "entityCount": 0,
+            "claimCount": 0,
+            "guideCount": 0,
         },
-        "items": mixed,
-        "featuredEntities": entity_items[:6],
+        "items": [
+            {
+                "id": post["id"],
+                "kind": "post",
+                "text": post.get("text", ""),
+                "summary": post.get("summary", ""),
+                "anonymousHandle": post.get("anonymousHandle", ""),
+                "createdAt": post.get("createdAt", ""),
+                "updatedAt": post.get("updatedAt", ""),
+            }
+            for post in posts
+        ],
+        "featuredEntities": [],
     }
 
 
@@ -3230,8 +3232,8 @@ def get_config():
             "authEnabled": auth_is_enabled(),
             "googleClientId": get_google_client_id(),
             "anonymousPosting": True,
-            "requiredOnboarding": True,
-            "acceptedUploads": ["text", "url", "image", "pdf", "audio", "video", "other"],
+            "requiredOnboarding": False,
+            "acceptedUploads": ["text"],
         }
     )
 
@@ -3251,6 +3253,28 @@ def get_auth_session():
 @app.post("/api/onboarding")
 def submit_onboarding():
     return jsonify(persist_onboarding_response()), 201
+
+
+@app.post("/api/posts")
+def submit_post():
+    submitter_id, anonymous_handle, _user = build_actor_context()
+    payload = request.get_json(silent=True) or {}
+    text = read_text(payload.get("text"), 6000)
+    post = create_post_record(text, submitter_id, anonymous_handle)
+    return (
+        jsonify(
+            {
+                "id": post["id"],
+                "kind": "post",
+                "text": post.get("text", ""),
+                "summary": post.get("summary", ""),
+                "anonymousHandle": post.get("anonymousHandle", ""),
+                "createdAt": post.get("createdAt", ""),
+                "updatedAt": post.get("updatedAt", ""),
+            }
+        ),
+        201,
+    )
 
 
 @app.post("/api/auth/google")

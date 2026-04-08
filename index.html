@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Stop The Slop | Public Memory for Real-World AI Behavior</title>
+  <title>Stop The Slop | AI Complaint Board</title>
   <meta
     name="description"
-    content="Share anything about AI. Stop The Slop answers in a private thread and turns repeated patterns into public memory about what tools are good at, bad at, and disputed on."
+    content="A place to vent about AI. Read what other people have shared and post your own complaint anonymously."
   />
   <script src="./analytics-config.js"></script>
   <script src="./analytics-bootstrap.js?v=20260327a"></script>
@@ -14,236 +14,60 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="icon" type="image/png" href="./src/StopTheSlopLogo.png" />
-  <link rel="stylesheet" href="./styles.css?v=20260403c" />
+  <link rel="stylesheet" href="./styles.css?v=20260408a" />
 </head>
 <body data-page="home">
-  <div class="page-shell">
+  <div class="page-shell page-shell-board">
     <div class="bg-grid"></div>
 
-    <header class="topbar">
+    <header class="board-header">
       <a class="brand" href="./index.html" aria-label="Stop The Slop home">
         <img class="brand-logo" src="./src/StopTheSlopLogoHorizontal.png" alt="Stop The Slop" />
       </a>
-      <nav class="topnav" aria-label="Primary">
-        <a class="is-active" href="./index.html">Home</a>
-        <a href="./wiki.html">Wiki</a>
-        <a href="./mcp.html">MCP</a>
-        <a href="./feedback.html">Feedback</a>
-        <a href="https://discord.gg/6fYrFKpr" target="_blank" rel="noreferrer">Discord</a>
-        <a href="https://www.reddit.com/r/Stop_The_Slop/" target="_blank" rel="noreferrer">Reddit</a>
-      </nav>
-      <div class="topbar-actions">
-        <div class="auth-slot" id="auth-slot"></div>
-        <a class="button ghost" href="./wiki.html">Browse Memory</a>
-      </div>
+      <p class="board-tagline">A place to vent about AI.</p>
     </header>
 
-    <main class="page-stack">
-      <section class="home-hero chat-first-hero">
-        <section class="home-intake-panel chat-first-panel" id="intake">
-          <div class="chat-hero-copy">
-            <p class="eyebrow">Public Memory</p>
-            <h1 class="hero-title">Real-world memory for AI behavior.</h1>
-            <p class="hero-copy-text">
-              Ask a question, describe a failure, recommend a tool, or paste a workflow. The assistant answers in a
-              private thread. The public site only shows derived memory about what tools are good at, bad at, and still
-              disputed on.
-            </p>
-          </div>
-
-          <div class="mini-metrics" aria-label="Community totals">
-            <div class="mini-metric">
-              <span class="status-label">Sources</span>
-              <strong class="mini-metric-value" id="metric-total">—</strong>
-            </div>
-            <div class="mini-metric">
-              <span class="status-label">Entities</span>
-              <strong class="mini-metric-value" id="metric-tools">—</strong>
-            </div>
-            <div class="mini-metric">
-              <span class="status-label">Takeaways</span>
-              <strong class="mini-metric-value" id="metric-modalities">—</strong>
-            </div>
-          </div>
-
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">Private Intake</p>
-              <h2>Start with one message</h2>
-            </div>
-            <p class="form-note">
-              One message is enough to open a private thread and start shaping public memory.
-            </p>
-          </div>
-
-          <form class="composer-form" id="composer-form">
-            <label class="signal-textarea">
-              <span>What happened, or what do you want to know?</span>
-              <textarea
-                id="composer-text"
-                name="text"
-                rows="8"
-                maxlength="6000"
-                placeholder="Example: Claude Code keeps over-editing my repo. Is that a common complaint? You can also paste a URL directly into this message."
-              ></textarea>
-            </label>
-
-            <p class="field-note" id="composer-helper">
-              Paste text only. If there is a URL in your message, the backend will inspect it automatically.
-            </p>
-
-            <div class="form-footer">
-              <div class="auth-note" id="composer-auth-note"></div>
-              <div class="form-actions">
-                <button class="button ghost" id="composer-seed" type="button">Try Example</button>
-                <button class="button primary" id="composer-submit" type="submit">Start Chat</button>
-              </div>
-            </div>
-          </form>
-
-          <div class="home-example-block">
-            <p class="field-note">Try prompts like:</p>
-            <div class="chip-list home-prompt-chips" id="home-prompt-chips">
-              <button class="list-chip prompt-chip" type="button" data-prompt="Claude Code feels great until it gets lost in a long repo. Is that a common pattern or just me?">Claude Code feels great until it gets lost in a long repo.</button>
-              <button class="list-chip prompt-chip" type="button" data-prompt="Gemini contradicted itself twice today. Is that a known pattern people keep seeing?">Gemini contradicted itself twice today.</button>
-              <button class="list-chip prompt-chip" type="button" data-prompt="Here is a guide for agentic RAG. What parts are worth keeping in the public memory?">Here is a guide for agentic RAG. What should the public memory keep?</button>
-              <button class="list-chip prompt-chip" type="button" data-prompt="People keep hyping Kimi K2.5. What is it actually good at and where are opinions still mixed?">What is Kimi K2.5 actually good at?</button>
-            </div>
-          </div>
-        </section>
-      </section>
-
-      <section class="preview-section">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">How It Works</p>
-            <h2>Private threads become public memory</h2>
-          </div>
-          <p class="form-note">
-            Raw submissions stay private. The public product is the distilled memory that keeps surviving repeated evidence.
-          </p>
-        </div>
-        <div class="memory-proof-grid">
-          <article class="memory-proof-card">
-            <span class="panel-kicker">1. You Share</span>
-            <h3 class="ticket-title">Anything about AI</h3>
-            <p>Ask a question, describe a failure, recommend a workflow, or paste a URL into the main message.</p>
-          </article>
-          <article class="memory-proof-card">
-            <span class="panel-kicker">2. The AI Answers</span>
-            <h3 class="ticket-title">Private, grounded reply</h3>
-            <p>Your thread stays private while the assistant grounds on your message, the site’s memory, and the live web.</p>
-          </article>
-          <article class="memory-proof-card">
-            <span class="panel-kicker">3. Patterns Get Distilled</span>
-            <h3 class="ticket-title">Claims, guides, and questions</h3>
-            <p>The system extracts durable takeaways instead of publishing raw posts or one-off headline trivia.</p>
-          </article>
-          <article class="memory-proof-card">
-            <span class="panel-kicker">4. Public Memory Updates</span>
-            <h3 class="ticket-title">Topic pages keep getting sharper</h3>
-            <p>Tools and subjects accumulate a visible memory of what people think they are good at, bad at, and split on.</p>
-          </article>
-        </div>
-        <article class="memory-example-card">
-          <div class="memory-example-copy">
-            <span class="panel-kicker">Example Flow</span>
-            <h3 class="ticket-title">A complaint turns into reusable memory</h3>
-            <p>
-              Someone asks whether Claude Code is reliable over longer agentic loops. The private answer can cite fresh
-              evidence, while the public site can update the Claude Code page with claims like “great for long coding
-              sessions” and “reliability versus Cursor is still disputed.”
-            </p>
-          </div>
-          <div class="memory-example-steps">
-            <div class="memory-example-step">
-              <span class="status-label">Input</span>
-              <p>“Claude Code feels great until it gets lost in a long repo. Is that a common complaint?”</p>
-            </div>
-            <div class="memory-example-step">
-              <span class="status-label">Private Answer</span>
-              <p>Grounded summary of where people agree, where they disagree, and what evidence is freshest.</p>
-            </div>
-            <div class="memory-example-step">
-              <span class="status-label">Public Artifact</span>
-              <p>Updated topic page, stronger claim support, and a reusable open question if consensus is still weak.</p>
-            </div>
-          </div>
-        </article>
-      </section>
-
-      <section class="preview-section">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">What People Are Noticing</p>
-            <h2>Claims, disagreements, and hot subjects</h2>
-          </div>
-          <p class="form-note">
-            The homepage should read like a public reality check, not a message board.
-          </p>
-          <a class="button ghost inline-button" href="./wiki.html">Browse Wiki</a>
-        </div>
-        <div class="preview-grid" id="home-noticing" aria-live="polite"></div>
-      </section>
-
-      <section class="preview-section">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Topic Pages</p>
-            <h2>Tools, models, and subjects people keep checking</h2>
-          </div>
-          <p class="form-note">
-            Open any topic page to see what the community memory currently says, where it is thin, and what changed recently.
-          </p>
-        </div>
-        <div class="preview-grid" id="home-topics" aria-live="polite"></div>
-      </section>
-
-      <section class="preview-section">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Reusable Guides</p>
-            <h2>Workflows the site keeps seeing repeated</h2>
-          </div>
-          <p class="form-note">
-            Wins matter too. Good workflows should compound into short, durable guidance.
-          </p>
-        </div>
-        <div class="preview-grid" id="home-guides" aria-live="polite"></div>
-      </section>
-
-      <section class="preview-section">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Open Questions</p>
-            <h2>Questions that still need better evidence</h2>
-          </div>
-          <p class="form-note">
-            Only broad, reusable questions belong here. The point is to expose uncertainty, not preserve trivia.
-          </p>
-        </div>
-        <div class="preview-grid" id="home-questions" aria-live="polite"></div>
-      </section>
+    <main class="board-stream-shell">
+      <div class="complaint-stream" id="home-feed" aria-live="polite"></div>
     </main>
-
-    <footer class="footer">
-      <img class="footer-logo" src="./src/StopTheSlopLogo.png" alt="Stop The Slop emblem" />
-      <div>
-        <strong>Stop The Slop</strong>
-        <p>Ask or share anything about AI. Get a private answer. Help build public memory.</p>
-      </div>
-      <div class="footer-links">
-        <a href="./index.html">Home</a>
-        <a href="./wiki.html">Wiki</a>
-        <a href="./mcp.html">MCP</a>
-        <a href="./feedback.html">Feedback</a>
-        <a href="https://discord.gg/6fYrFKpr" target="_blank" rel="noreferrer">Discord</a>
-        <a href="https://www.reddit.com/r/Stop_The_Slop/" target="_blank" rel="noreferrer">Reddit</a>
-      </div>
-    </footer>
   </div>
 
+  <button class="post-launcher" id="post-open" type="button">Post</button>
+
+  <section class="post-sheet" id="post-sheet" hidden>
+    <button class="post-sheet-backdrop" type="button" data-close-post aria-label="Close post form"></button>
+    <div class="post-sheet-panel">
+      <div class="post-sheet-topline">
+        <div>
+          <p class="eyebrow">New Complaint</p>
+          <h2>What did the AI do?</h2>
+        </div>
+        <button class="sheet-close" id="post-close" type="button" aria-label="Close">Close</button>
+      </div>
+
+      <form class="composer-form post-form" id="composer-form">
+        <label class="signal-textarea">
+          <span>Say it plainly.</span>
+          <textarea
+            id="composer-text"
+            name="text"
+            rows="7"
+            maxlength="6000"
+            placeholder="Example: Claude Code kept rewriting files I never asked it to touch."
+          ></textarea>
+        </label>
+
+        <div class="form-footer post-form-footer">
+          <div class="auth-note" id="composer-auth-note"></div>
+          <div class="form-actions">
+            <button class="button primary" id="composer-submit" type="submit">Post Complaint</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </section>
+
   <script src="./api-config.js"></script>
-  <script src="./app.js?v=20260403b" defer></script>
+  <script src="./app.js?v=20260408a" defer></script>
 </body>
 </html>
