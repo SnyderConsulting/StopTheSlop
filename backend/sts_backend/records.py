@@ -14,6 +14,7 @@ from .config import (
     ONBOARDING_PARTITION_KEY,
     POST_PARTITION_KEY,
     QUESTION_PARTITION_KEY,
+    REACTION_PARTITION_PREFIX,
     SOURCE_PARTITION_KEY,
     USER_PARTITION_KEY,
     WEB_POST_PARTITION_KEY,
@@ -270,6 +271,30 @@ def table_to_post_record(entity: dict[str, Any]) -> dict[str, Any]:
         "anonymousHandle": entity.get("anonymousHandle", ""),
         "text": entity.get("text", ""),
         "summary": entity.get("summary", ""),
+        "createdAt": entity.get("createdAt", now_iso()),
+        "updatedAt": entity.get("updatedAt", now_iso()),
+    }
+
+
+def reaction_record_to_table(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "PartitionKey": record.get("partitionKey", REACTION_PARTITION_PREFIX),
+        "RowKey": record["visitorHash"],
+        "itemId": record.get("itemId", ""),
+        "itemKind": record.get("itemKind", ""),
+        "emojisJson": json.dumps(record.get("emojis", [])),
+        "createdAt": record.get("createdAt", now_iso()),
+        "updatedAt": record.get("updatedAt", now_iso()),
+    }
+
+
+def table_to_reaction_record(entity: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "partitionKey": entity.get("PartitionKey", REACTION_PARTITION_PREFIX),
+        "visitorHash": entity["RowKey"],
+        "itemId": entity.get("itemId", ""),
+        "itemKind": entity.get("itemKind", ""),
+        "emojis": read_json(entity.get("emojisJson", "[]"), []),
         "createdAt": entity.get("createdAt", now_iso()),
         "updatedAt": entity.get("updatedAt", now_iso()),
     }

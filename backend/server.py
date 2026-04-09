@@ -11,6 +11,7 @@ import re
 import secrets
 import socket
 import time
+import unicodedata
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -83,6 +84,7 @@ from sts_backend.config import (
     PUBLIC_ENTITY_CREATION_TYPES,
     QUESTION_PARTITION_KEY,
     QUESTION_STATUS_OPTIONS,
+    REACTION_PARTITION_PREFIX,
     REPLY_SCHEMA,
     ROOT_DIR,
     SESSION_SALT,
@@ -110,6 +112,7 @@ from sts_backend.records import (
     onboarding_record_to_table,
     post_record_to_table,
     question_record_to_table,
+    reaction_record_to_table,
     source_record_to_table,
     table_to_claim_record,
     table_to_conversation_record,
@@ -118,6 +121,7 @@ from sts_backend.records import (
     table_to_message_record,
     table_to_post_record,
     table_to_question_record,
+    table_to_reaction_record,
     table_to_source_record,
     table_to_user_record,
     table_to_web_post_record,
@@ -1408,6 +1412,152 @@ def list_web_posts(limit: int | None = None) -> list[dict[str, Any]]:
     return items[:limit] if limit else items
 
 
+def build_reaction_partition_key(item_id: str) -> str:
+    digest = hashlib.sha1(read_text(item_id, 240).encode("utf-8")).hexdigest()[:24]
+    return f"{REACTION_PARTITION_PREFIX}-{digest}"
+
+
+def normalize_reaction_emoji(value: Any) -> str:
+    text = unicodedata.normalize("NFC", read_text(value, 24)).replace(" ", "")
+    if not text or any(char in text for char in ("\n", "\r", "\t")):
+        return ""
+    if any("a" <= char.lower() <= "z" for char in text):
+        return ""
+
+    has_emoji_signal = False
+    for char in text:
+        codepoint = ord(char)
+        category = unicodedata.category(char)
+        if codepoint in {0x200D, 0xFE0E, 0xFE0F, 0x20E3}:
+            has_emoji_signal = True
+            continue
+        if 0x1F1E6 <= codepoint <= 0x1F1FF:
+            has_emoji_signal = True
+            continue
+        if 0x1F3FB <= codepoint <= 0x1F3FF:
+            has_emoji_signal = True
+            continue
+        if category.startswith("S") and codepoint > 127:
+            has_emoji_signal = True
+            continue
+        if category in {"Mn", "Cf"}:
+            has_emoji_signal = True
+            continue
+        if category.startswith("N") and codepoint <= 127:
+            continue
+        if category.startswith("P") and char == "#":
+            continue
+        return ""
+
+    return text if has_emoji_signal else ""
+
+
+def find_reactable_item(item_id: str) -> dict[str, Any] | None:
+    post = get_row(POST_PARTITION_KEY, item_id)
+    if post:
+        return {"id": item_id, "kind": "post"}
+
+    web_post = get_row(WEB_POST_PARTITION_KEY, item_id)
+    if web_post:
+        return {"id": item_id, "kind": "web_post"}
+
+    for item in build_live_web_feed_items():
+        if item.get("id") == item_id:
+            return {"id": item_id, "kind": "live_web"}
+    return None
+
+
+def list_reaction_records(item_id: str) -> list[dict[str, Any]]:
+    partition_key = build_reaction_partition_key(item_id)
+    rows = list_rows(partition_key)
+    return [table_to_reaction_record(row) for row in rows if read_text(row.get("itemId"), 240) == item_id]
+
+
+def build_reaction_summary(item_id: str, viewer_id: str = "") -> dict[str, Any]:
+    viewer_hash = hash_token(viewer_id)[:48] if viewer_id else ""
+    counts: dict[str, int] = defaultdict(int)
+    viewer_emojis: list[str] = []
+
+    for record in list_reaction_records(item_id):
+        emojis = dedupe_texts(
+            [normalize_reaction_emoji(item) for item in record.get("emojis", [])],
+            limit=12,
+        )
+        if record.get("visitorHash") == viewer_hash:
+            viewer_emojis = emojis
+        for emoji in emojis:
+            if emoji:
+                counts[emoji] += 1
+
+    items = [
+        {
+            "emoji": emoji,
+            "count": count,
+            "viewer": emoji in viewer_emojis,
+        }
+        for emoji, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    ]
+    return {
+        "items": items[:8],
+        "viewerEmojis": viewer_emojis[:12],
+        "totalCount": sum(counts.values()),
+    }
+
+
+def attach_reaction_summaries(items: list[dict[str, Any]], viewer_id: str = "") -> list[dict[str, Any]]:
+    hydrated: list[dict[str, Any]] = []
+    for item in items:
+        item_id = read_text(item.get("id"), 240)
+        enriched = dict(item)
+        enriched["reactions"] = build_reaction_summary(item_id, viewer_id) if item_id else {
+            "items": [],
+            "viewerEmojis": [],
+            "totalCount": 0,
+        }
+        hydrated.append(enriched)
+    return hydrated
+
+
+def toggle_reaction(item_id: str, item_kind: str, visitor_id: str, emoji: str) -> dict[str, Any]:
+    normalized_item_id = read_text(item_id, 240)
+    normalized_emoji = normalize_reaction_emoji(emoji)
+    normalized_visitor_id = read_text(visitor_id, 120)
+    if not normalized_item_id:
+        raise ValueError("Missing item id.")
+    if item_kind not in {"post", "web_post", "live_web"}:
+        raise ValueError("Unsupported reaction target.")
+    if not normalized_visitor_id:
+        raise ValueError("Missing visitor id.")
+    if not normalized_emoji:
+        raise ValueError("Pick a real emoji.")
+
+    partition_key = build_reaction_partition_key(normalized_item_id)
+    visitor_hash = hash_token(normalized_visitor_id)[:48]
+    existing = get_row(partition_key, visitor_hash)
+    record = table_to_reaction_record(existing) if existing else {
+        "partitionKey": partition_key,
+        "visitorHash": visitor_hash,
+        "itemId": normalized_item_id,
+        "itemKind": item_kind,
+        "emojis": [],
+        "createdAt": now_iso(),
+        "updatedAt": now_iso(),
+    }
+
+    current = dedupe_texts(
+        [normalize_reaction_emoji(item) for item in record.get("emojis", [])],
+        limit=12,
+    )
+    if normalized_emoji in current:
+        current = [item for item in current if item != normalized_emoji]
+    else:
+        current = dedupe_texts([normalized_emoji, *current], limit=12)
+    record["emojis"] = current
+    record["updatedAt"] = now_iso()
+    upsert_row(reaction_record_to_table(record))
+    return build_reaction_summary(normalized_item_id, normalized_visitor_id)
+
+
 def create_post_record(
     text: str,
     submitter_id: str,
@@ -2025,7 +2175,7 @@ def derive_cluster_items(claims: list[dict[str, Any]], entities_by_id: dict[str,
     return sorted(items, key=lambda item: (-item.get("supportCount", 0), item.get("updatedAt", "")))[:6]
 
 
-def build_home_feed_items() -> list[dict[str, Any]]:
+def build_home_feed_items(viewer_id: str = "") -> list[dict[str, Any]]:
     community_items = [
         {
             "id": post["id"],
@@ -2075,14 +2225,14 @@ def build_home_feed_items() -> list[dict[str, Any]]:
                 mixed.append(streams[key].pop(0))
             if len(mixed) >= MAX_FEED_ITEMS:
                 break
-    return mixed[:MAX_FEED_ITEMS]
+    return attach_reaction_summaries(mixed[:MAX_FEED_ITEMS], viewer_id)
 
 
-def build_feed() -> dict[str, Any]:
+def build_feed(viewer_id: str = "") -> dict[str, Any]:
     posts = list_posts()
     web_posts = list_web_posts(limit=18)
     live_items = build_live_web_feed_items()
-    items = build_home_feed_items()
+    items = build_home_feed_items(viewer_id)
     return {
         "metrics": {
             "postCount": len(posts),
@@ -2546,6 +2696,7 @@ def submit_post():
                 "anonymousHandle": post.get("anonymousHandle", ""),
                 "createdAt": post.get("createdAt", ""),
                 "updatedAt": post.get("updatedAt", ""),
+                "reactions": {"items": [], "viewerEmojis": [], "totalCount": 0},
             }
         ),
         201,
@@ -2566,7 +2717,22 @@ def sign_in_with_google():
 
 @app.get("/api/feed")
 def get_feed():
-    return jsonify(build_feed())
+    visitor_id = read_text(request.args.get("visitorId"), 120)
+    return jsonify(build_feed(visitor_id))
+
+
+@app.post("/api/items/<item_id>/reactions")
+def react_to_item(item_id: str):
+    payload = request.get_json(silent=True) or {}
+    item = find_reactable_item(item_id)
+    if not item:
+        return jsonify({"detail": "Feed item not found."}), 404
+
+    user = get_authenticated_user()
+    visitor_id = read_text(payload.get("visitorId"), 120) or read_text((user or {}).get("id"), 120)
+    emoji = read_text(payload.get("emoji"), 24)
+    reactions = toggle_reaction(item["id"], item["kind"], visitor_id, emoji)
+    return jsonify({"itemId": item["id"], "kind": item["kind"], "reactions": reactions})
 
 
 @app.get("/api/entities")

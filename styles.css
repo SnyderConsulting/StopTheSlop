@@ -264,6 +264,120 @@ a:focus-visible {
   font-weight: 600;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.reaction-strip {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.reaction-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.reaction-list {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.reaction-chip,
+.reaction-add,
+.reaction-submit {
+  appearance: none;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+
+.reaction-chip,
+.reaction-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  font-size: 0.92rem;
+  line-height: 1;
+}
+
+.reaction-chip:hover,
+.reaction-add:hover,
+.reaction-submit:hover {
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.reaction-chip.is-active {
+  border-color: rgba(118, 223, 131, 0.34);
+  background: rgba(118, 223, 131, 0.12);
+}
+
+.reaction-chip-emoji {
+  font-size: 1rem;
+}
+
+.reaction-chip-count {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.reaction-add {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.reaction-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.reaction-input input {
+  width: 96px;
+  min-height: 42px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 1.2rem;
+  text-align: center;
+}
+
+.reaction-submit {
+  min-height: 42px;
+  padding: 0 14px;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.reaction-note {
+  min-height: 1em;
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.74rem;
+  font-family: "IBM Plex Mono", monospace;
+}
+
 .post-launcher {
   position: fixed;
   left: 50%;
@@ -1907,6 +2021,25 @@ textarea {
 
   .complaint-media img {
     max-height: 220px;
+  }
+
+  .reaction-row {
+    align-items: stretch;
+  }
+
+  .reaction-add {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .reaction-form {
+    width: 100%;
+  }
+
+  .reaction-input,
+  .reaction-input input,
+  .reaction-submit {
+    width: 100%;
   }
 
   .post-launcher {

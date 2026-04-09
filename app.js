@@ -3,6 +3,7 @@ const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
 const DEFAULT_MCP_BASE_URL = "";
 const SESSION_STORAGE_KEY = "sts_session_token";
 const CONVERSATION_TOKEN_STORAGE_KEY = "sts_conversation_tokens_v1";
+const VISITOR_STORAGE_KEY = "sts_visitor_id_v1";
 
 const refs = {
   authSlot: document.getElementById("auth-slot"),
@@ -50,6 +51,7 @@ const refs = {
 const state = {
   apiBaseUrl: readApiBaseUrl(),
   mcpBaseUrl: readMcpBaseUrl(),
+  visitorId: "",
   config: null,
   session: null,
   feed: null,
@@ -72,6 +74,7 @@ async function init() {
 async function bootApp() {
   if (state.booted) return;
   state.booted = true;
+  state.visitorId = ensureVisitorId();
 
   renderAuthSlot();
 
@@ -117,6 +120,8 @@ function wireHomePage() {
   refs.composerForm?.addEventListener("submit", handleComposerSubmit);
   refs.postOpen?.addEventListener("click", openPostSheet);
   refs.postClose?.addEventListener("click", closePostSheet);
+  refs.homeFeed?.addEventListener("click", handleHomeFeedClick);
+  refs.homeFeed?.addEventListener("submit", handleHomeFeedSubmit);
   refs.postSheet?.addEventListener("click", (event) => {
     if (event.target.closest("[data-close-post]")) {
       closePostSheet();
@@ -476,6 +481,7 @@ function renderComplaintCard(item) {
     <article class="complaint-card complaint-card--post">
       <div class="complaint-meta">${escapeHtml(meta)}</div>
       <div class="complaint-body">${renderRichText(item.text || item.summary || "")}</div>
+      ${renderReactionBar(item)}
     </article>
   `;
 }
@@ -530,7 +536,57 @@ function renderWebFeedCard(item) {
         </div>
       `
         : ""}
+      ${renderReactionBar(item)}
     </article>
+  `;
+}
+
+function renderReactionBar(item) {
+  const reactionItems = Array.isArray(item.reactions?.items) ? item.reactions.items : [];
+  const chips = reactionItems
+    .map(
+      (reaction) => `
+        <button
+          class="reaction-chip${reaction.viewer ? " is-active" : ""}"
+          type="button"
+          data-react-emoji="${escapeHtml(reaction.emoji)}"
+          aria-label="React with ${escapeHtml(reaction.emoji)}"
+        >
+          <span class="reaction-chip-emoji">${escapeHtml(reaction.emoji)}</span>
+          <span class="reaction-chip-count">${formatNumber(reaction.count)}</span>
+        </button>
+      `
+    )
+    .join("");
+
+  return `
+    <div
+      class="reaction-strip"
+      data-reaction-strip
+      data-item-id="${escapeHtml(item.id || "")}"
+      data-item-kind="${escapeHtml(item.kind || "")}"
+    >
+      <div class="reaction-row">
+        <div class="reaction-list">${chips}</div>
+        <button class="reaction-add" type="button" data-open-reaction aria-expanded="false">Add emoji</button>
+      </div>
+      <form class="reaction-form" data-reaction-form hidden>
+        <label class="reaction-input">
+          <span class="sr-only">Emoji reaction</span>
+          <input
+            type="text"
+            name="emoji"
+            inputmode="text"
+            autocomplete="off"
+            maxlength="24"
+            placeholder="😭"
+            aria-label="Add an emoji reaction"
+          />
+        </label>
+        <button class="reaction-submit" type="submit">React</button>
+      </form>
+      <p class="reaction-note" data-reaction-note></p>
+    </div>
   `;
 }
 
@@ -557,6 +613,108 @@ function buildHomeCollections(feed) {
     guides: guides.slice(0, 4),
     questions: questions.slice(0, 4),
   };
+}
+
+async function handleHomeFeedClick(event) {
+  const reactButton = event.target.closest("[data-react-emoji]");
+  if (reactButton) {
+    const strip = reactButton.closest("[data-reaction-strip]");
+    if (!strip) return;
+    const itemId = strip.dataset.itemId || "";
+    const emoji = reactButton.dataset.reactEmoji || "";
+    await submitReaction(itemId, emoji, strip, reactButton);
+    return;
+  }
+
+  const openButton = event.target.closest("[data-open-reaction]");
+  if (!openButton) return;
+  const strip = openButton.closest("[data-reaction-strip]");
+  const form = strip?.querySelector("[data-reaction-form]");
+  const input = form?.querySelector("input[name='emoji']");
+  if (!strip || !form || !input) return;
+  const willOpen = form.hidden;
+  form.hidden = !form.hidden;
+  openButton.setAttribute("aria-expanded", String(willOpen));
+  setReactionNotice(strip, "");
+  if (willOpen) {
+    window.setTimeout(() => input.focus(), 20);
+  }
+}
+
+async function handleHomeFeedSubmit(event) {
+  const form = event.target.closest("[data-reaction-form]");
+  if (!form) return;
+  event.preventDefault();
+
+  const strip = form.closest("[data-reaction-strip]");
+  const input = form.querySelector("input[name='emoji']");
+  const submit = form.querySelector("button[type='submit']");
+  if (!strip || !input || !submit) return;
+
+  const emoji = input.value.trim();
+  if (!emoji) {
+    setReactionNotice(strip, "Pick an emoji first.");
+    input.focus();
+    return;
+  }
+
+  await submitReaction(strip.dataset.itemId || "", emoji, strip, submit);
+  input.value = "";
+  form.hidden = true;
+  const openButton = strip.querySelector("[data-open-reaction]");
+  openButton?.setAttribute("aria-expanded", "false");
+}
+
+async function submitReaction(itemId, emoji, strip, trigger) {
+  if (!itemId || !emoji || !strip) return;
+  const originalLabel = trigger?.textContent || "";
+  if (trigger) {
+    trigger.disabled = true;
+    if (trigger.matches("button[type='submit']")) {
+      trigger.textContent = "Saving...";
+    }
+  }
+  setReactionNotice(strip, "Saving reaction...");
+
+  try {
+    const payload = await apiFetch(`/api/items/${encodeURIComponent(itemId)}/reactions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        visitorId: state.visitorId,
+        emoji,
+      }),
+    });
+    updateFeedItemReactions(itemId, payload.reactions || { items: [], viewerEmojis: [], totalCount: 0 });
+    setReactionNotice(strip, "");
+  } catch (error) {
+    setReactionNotice(strip, error.message || "Could not save that reaction.");
+  } finally {
+    if (trigger) {
+      trigger.disabled = false;
+      if (trigger.matches("button[type='submit']")) {
+        trigger.textContent = originalLabel || "React";
+      }
+    }
+  }
+}
+
+function updateFeedItemReactions(itemId, reactions) {
+  const items = Array.isArray(state.feed?.items) ? state.feed.items : [];
+  state.feed = {
+    ...(state.feed || {}),
+    items: items.map((item) => (item.id === itemId ? { ...item, reactions } : item)),
+  };
+  renderHome();
+}
+
+function setReactionNotice(strip, message) {
+  const note = strip?.querySelector("[data-reaction-note]");
+  if (note) {
+    note.textContent = message || "";
+  }
 }
 
 function renderFeedCard(item) {
@@ -1180,7 +1338,8 @@ async function fetchSessionSafe() {
 
 async function fetchFeedSafe() {
   try {
-    return await apiFetch("/api/feed");
+    const query = state.visitorId ? `?visitorId=${encodeURIComponent(state.visitorId)}` : "";
+    return await apiFetch(`/api/feed${query}`);
   } catch (_error) {
     return { metrics: null, items: [], featuredEntities: [] };
   }
@@ -1247,6 +1406,33 @@ function readStoredSessionToken() {
   } catch (_error) {
     return "";
   }
+}
+
+function readVisitorId() {
+  try {
+    return window.localStorage.getItem(VISITOR_STORAGE_KEY) || "";
+  } catch (_error) {
+    return "";
+  }
+}
+
+function ensureVisitorId() {
+  const existing = readVisitorId();
+  if (existing) return existing;
+  const visitorId = buildVisitorId();
+  try {
+    window.localStorage.setItem(VISITOR_STORAGE_KEY, visitorId);
+  } catch (_error) {
+    // Ignore storage failures and keep the ephemeral id for this session.
+  }
+  return visitorId;
+}
+
+function buildVisitorId() {
+  if (window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+  return `visitor-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function readConversationTokens() {

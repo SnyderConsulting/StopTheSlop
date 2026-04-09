@@ -166,6 +166,7 @@ USER_PARTITION_KEY = "USER"
 META_PARTITION_KEY = "META"
 LEGACY_TICKET_PARTITION_KEY = "TICKET"
 ONBOARDING_PARTITION_KEY = "ONBOARDING"
+REACTION_PARTITION_PREFIX = "REACTION"
 
 ENTITY_TYPE_OPTIONS = {
     "model",
@@ -394,4 +395,3 @@ WEB_POST_SCHEMA = {
         "required": ["title", "summary", "body", "angle", "source_type", "media_caption", "tags"],
     },
 }
-
