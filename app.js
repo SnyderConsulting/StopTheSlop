@@ -4,6 +4,89 @@ const DEFAULT_MCP_BASE_URL = "";
 const SESSION_STORAGE_KEY = "sts_session_token";
 const CONVERSATION_TOKEN_STORAGE_KEY = "sts_conversation_tokens_v1";
 const VISITOR_STORAGE_KEY = "sts_visitor_id_v1";
+const RECENT_REACTION_STORAGE_KEY = "sts_recent_reaction_emojis_v1";
+const REACTION_PICKER_SECTIONS = [
+  {
+    id: "faces",
+    icon: "😵",
+    label: "Faces",
+    items: [
+      { emoji: "😭", label: "cry sob tears same pain" },
+      { emoji: "😂", label: "laugh funny absurd lmao" },
+      { emoji: "😡", label: "angry rage mad furious" },
+      { emoji: "🤯", label: "mind blown wild insane" },
+      { emoji: "😵‍💫", label: "dizzy confused spiral lost" },
+      { emoji: "😬", label: "grimace awkward yikes" },
+      { emoji: "😅", label: "sweat nervous barely okay" },
+      { emoji: "🤔", label: "thinking skeptical hmm" },
+      { emoji: "🙃", label: "upside down sarcasm sure" },
+      { emoji: "🤡", label: "clown embarrassing ridiculous" },
+      { emoji: "💀", label: "dead cooked destroyed" },
+      { emoji: "🤢", label: "nauseous gross bad slop" },
+      { emoji: "🤮", label: "vomit disgusting slop" },
+      { emoji: "😴", label: "boring tired snooze" },
+      { emoji: "😱", label: "scream shocking unbelievable" },
+      { emoji: "🫠", label: "melting broken collapsing" },
+    ],
+  },
+  {
+    id: "hands",
+    icon: "🙌",
+    label: "Hands",
+    items: [
+      { emoji: "👍", label: "thumbs up agree yes" },
+      { emoji: "👎", label: "thumbs down disagree no" },
+      { emoji: "👏", label: "clap applause true" },
+      { emoji: "🙏", label: "please thanks praying" },
+      { emoji: "🙌", label: "celebrate praise win" },
+      { emoji: "🤝", label: "same solidarity handshake" },
+      { emoji: "🫡", label: "salute respect" },
+      { emoji: "🤦", label: "facepalm obvious mess" },
+      { emoji: "🙄", label: "eye roll sure whatever" },
+      { emoji: "✍️", label: "document note write this down" },
+      { emoji: "✅", label: "check correct good" },
+      { emoji: "❌", label: "wrong false broken" },
+    ],
+  },
+  {
+    id: "signal",
+    icon: "🚨",
+    label: "Signals",
+    items: [
+      { emoji: "🚨", label: "alert alarm bad issue" },
+      { emoji: "⚠️", label: "warning caution careful" },
+      { emoji: "🔥", label: "fire hot intense viral" },
+      { emoji: "💯", label: "hundred true exactly" },
+      { emoji: "📉", label: "down bad regression drift" },
+      { emoji: "📈", label: "up improving momentum" },
+      { emoji: "♻️", label: "repeat again loop recursive" },
+      { emoji: "🧨", label: "exploding blow up fail" },
+      { emoji: "💥", label: "impact crash boom" },
+      { emoji: "🧵", label: "thread discussion replies" },
+      { emoji: "📌", label: "pin important bookmark" },
+      { emoji: "🕳️", label: "hole rabbit hole weird" },
+    ],
+  },
+  {
+    id: "tools",
+    icon: "🛠️",
+    label: "Tools",
+    items: [
+      { emoji: "🤖", label: "robot ai bot model" },
+      { emoji: "🧠", label: "brain smart reasoning" },
+      { emoji: "🐛", label: "bug broken error" },
+      { emoji: "🛠️", label: "tools fix work" },
+      { emoji: "🔧", label: "wrench tweak repair" },
+      { emoji: "🗑️", label: "trash garbage slop" },
+      { emoji: "💩", label: "poop garbage slop" },
+      { emoji: "🔁", label: "repeat loop again" },
+      { emoji: "📎", label: "attachment source receipt" },
+      { emoji: "🔍", label: "inspect investigate research" },
+      { emoji: "🧪", label: "experiment test eval" },
+      { emoji: "💻", label: "code developer terminal" },
+    ],
+  },
+];
 
 const refs = {
   authSlot: document.getElementById("auth-slot"),
@@ -59,6 +142,9 @@ const state = {
   homeSubmitting: false,
   conversationSubmitting: false,
   conversation: null,
+  reactionPickerItemId: "",
+  reactionPickerCategory: "recent",
+  reactionPickerQuery: "",
   entitySearchTimer: 0,
   entities: [],
   selectedEntityId: "",
@@ -121,12 +207,14 @@ function wireHomePage() {
   refs.postOpen?.addEventListener("click", openPostSheet);
   refs.postClose?.addEventListener("click", closePostSheet);
   refs.homeFeed?.addEventListener("click", handleHomeFeedClick);
-  refs.homeFeed?.addEventListener("submit", handleHomeFeedSubmit);
+  refs.homeFeed?.addEventListener("input", handleHomeFeedInput);
   refs.postSheet?.addEventListener("click", (event) => {
     if (event.target.closest("[data-close-post]")) {
       closePostSheet();
     }
   });
+  document.addEventListener("click", handleHomePageDocumentClick);
+  document.addEventListener("keydown", handleHomePageKeydown);
 }
 
 function wireConversationPage() {
@@ -543,6 +631,7 @@ function renderWebFeedCard(item) {
 
 function renderReactionBar(item) {
   const reactionItems = Array.isArray(item.reactions?.items) ? item.reactions.items : [];
+  const isPickerOpen = state.reactionPickerItemId === item.id;
   const chips = reactionItems
     .map(
       (reaction) => `
@@ -568,26 +657,125 @@ function renderReactionBar(item) {
     >
       <div class="reaction-row">
         <div class="reaction-list">${chips}</div>
-        <button class="reaction-add" type="button" data-open-reaction aria-expanded="false">Add emoji</button>
+        <button class="reaction-add${isPickerOpen ? " is-active" : ""}" type="button" data-open-reaction aria-expanded="${isPickerOpen ? "true" : "false"}">😀 Add reaction</button>
       </div>
-      <form class="reaction-form" data-reaction-form hidden>
-        <label class="reaction-input">
-          <span class="sr-only">Emoji reaction</span>
-          <input
-            type="text"
-            name="emoji"
-            inputmode="text"
-            autocomplete="off"
-            maxlength="24"
-            placeholder="😭"
-            aria-label="Add an emoji reaction"
-          />
-        </label>
-        <button class="reaction-submit" type="submit">React</button>
-      </form>
+      ${isPickerOpen ? renderReactionPicker(item.id) : ""}
       <p class="reaction-note" data-reaction-note></p>
     </div>
   `;
+}
+
+function renderReactionPicker(itemId) {
+  const query = state.reactionPickerQuery || "";
+  const sections = buildReactionPickerSections(query);
+  const activeSectionId = resolveReactionPickerSectionId(sections);
+  const activeSection = sections.find((section) => section.id === activeSectionId) || sections[0] || null;
+  const tabs = sections
+    .map(
+      (section) => `
+        <button
+          class="reaction-picker-tab${section.id === activeSectionId ? " is-active" : ""}"
+          type="button"
+          data-reaction-category="${escapeHtml(section.id)}"
+          title="${escapeHtml(section.label)}"
+          aria-label="${escapeHtml(section.label)}"
+        >
+          <span>${escapeHtml(section.icon)}</span>
+        </button>
+      `
+    )
+    .join("");
+  const emojiGrid = activeSection && activeSection.items.length
+    ? `
+      <div class="reaction-picker-grid">
+        ${activeSection.items
+          .map(
+            (entry) => `
+              <button
+                class="reaction-picker-emoji"
+                type="button"
+                data-picker-emoji="${escapeHtml(entry.emoji)}"
+                title="${escapeHtml(entry.label)}"
+                aria-label="${escapeHtml(entry.label)}"
+              >
+                ${escapeHtml(entry.emoji)}
+              </button>
+            `
+          )
+          .join("")}
+      </div>
+    `
+    : '<p class="reaction-picker-empty">No emoji match that search.</p>';
+
+  return `
+    <div class="reaction-picker" data-reaction-picker data-item-id="${escapeHtml(itemId)}">
+      <div class="reaction-picker-topline">
+        <label class="reaction-picker-search">
+          <span class="sr-only">Search emoji</span>
+          <input
+            type="search"
+            data-reaction-search
+            value="${escapeHtml(query)}"
+            placeholder="Search emoji"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </label>
+        <button class="reaction-picker-close" type="button" data-close-reaction aria-label="Close emoji picker">Close</button>
+      </div>
+      <div class="reaction-picker-tabs">${tabs}</div>
+      ${emojiGrid}
+    </div>
+  `;
+}
+
+function buildReactionPickerSections(query) {
+  const normalizedQuery = String(query || "").trim().toLowerCase();
+  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
+  const sections = [];
+  const recent = readRecentReactionEmojis()
+    .map((emoji) => findReactionEmojiEntry(emoji) || { emoji, label: `Recent ${emoji}` });
+  if (recent.length) {
+    sections.push({
+      id: "recent",
+      icon: "🕘",
+      label: "Recent",
+      items: filterReactionPickerItems(recent, tokens),
+    });
+  }
+
+  for (const section of REACTION_PICKER_SECTIONS) {
+    sections.push({
+      ...section,
+      items: filterReactionPickerItems(section.items, tokens),
+    });
+  }
+
+  return sections;
+}
+
+function resolveReactionPickerSectionId(sections) {
+  const activeSection = sections.find((section) => section.id === state.reactionPickerCategory);
+  if (activeSection && activeSection.items.length) {
+    return activeSection.id;
+  }
+  return sections.find((section) => section.items.length)?.id || sections[0]?.id || "faces";
+}
+
+function filterReactionPickerItems(items, tokens) {
+  if (!tokens.length) return items;
+  return items.filter((item) => {
+    const haystack = String(item.label || "").toLowerCase();
+    return tokens.every((token) => haystack.includes(token));
+  });
+}
+
+function findReactionEmojiEntry(emoji) {
+  for (const section of REACTION_PICKER_SECTIONS) {
+    const match = section.items.find((item) => item.emoji === emoji);
+    if (match) return match;
+  }
+  return null;
 }
 
 function prependHomePost(post) {
@@ -616,6 +804,16 @@ function buildHomeCollections(feed) {
 }
 
 async function handleHomeFeedClick(event) {
+  const pickedEmoji = event.target.closest("[data-picker-emoji]");
+  if (pickedEmoji) {
+    const strip = pickedEmoji.closest("[data-reaction-strip]");
+    if (!strip) return;
+    const itemId = strip.dataset.itemId || "";
+    const emoji = pickedEmoji.dataset.pickerEmoji || "";
+    await submitReaction(itemId, emoji, strip, pickedEmoji);
+    return;
+  }
+
   const reactButton = event.target.closest("[data-react-emoji]");
   if (reactButton) {
     const strip = reactButton.closest("[data-reaction-strip]");
@@ -627,42 +825,42 @@ async function handleHomeFeedClick(event) {
   }
 
   const openButton = event.target.closest("[data-open-reaction]");
-  if (!openButton) return;
-  const strip = openButton.closest("[data-reaction-strip]");
-  const form = strip?.querySelector("[data-reaction-form]");
-  const input = form?.querySelector("input[name='emoji']");
-  if (!strip || !form || !input) return;
-  const willOpen = form.hidden;
-  form.hidden = !form.hidden;
-  openButton.setAttribute("aria-expanded", String(willOpen));
-  setReactionNotice(strip, "");
-  if (willOpen) {
-    window.setTimeout(() => input.focus(), 20);
-  }
-}
-
-async function handleHomeFeedSubmit(event) {
-  const form = event.target.closest("[data-reaction-form]");
-  if (!form) return;
-  event.preventDefault();
-
-  const strip = form.closest("[data-reaction-strip]");
-  const input = form.querySelector("input[name='emoji']");
-  const submit = form.querySelector("button[type='submit']");
-  if (!strip || !input || !submit) return;
-
-  const emoji = input.value.trim();
-  if (!emoji) {
-    setReactionNotice(strip, "Pick an emoji first.");
-    input.focus();
+  if (openButton) {
+    const strip = openButton.closest("[data-reaction-strip]");
+    if (!strip) return;
+    const itemId = strip.dataset.itemId || "";
+    if (!itemId) return;
+    if (state.reactionPickerItemId === itemId) {
+      closeReactionPicker();
+      renderHome();
+      return;
+    }
+    openReactionPicker(itemId);
+    renderHome();
+    focusReactionPickerSearch(itemId);
     return;
   }
 
-  await submitReaction(strip.dataset.itemId || "", emoji, strip, submit);
-  input.value = "";
-  form.hidden = true;
-  const openButton = strip.querySelector("[data-open-reaction]");
-  openButton?.setAttribute("aria-expanded", "false");
+  const categoryButton = event.target.closest("[data-reaction-category]");
+  if (categoryButton) {
+    state.reactionPickerCategory = categoryButton.dataset.reactionCategory || "faces";
+    renderHome();
+    focusReactionPickerSearch(state.reactionPickerItemId);
+    return;
+  }
+
+  if (event.target.closest("[data-close-reaction]")) {
+    closeReactionPicker();
+    renderHome();
+  }
+}
+
+function handleHomeFeedInput(event) {
+  const searchInput = event.target.closest("[data-reaction-search]");
+  if (!searchInput || !state.reactionPickerItemId) return;
+  state.reactionPickerQuery = searchInput.value || "";
+  renderHome();
+  focusReactionPickerSearch(state.reactionPickerItemId);
 }
 
 async function submitReaction(itemId, emoji, strip, trigger) {
@@ -687,6 +885,8 @@ async function submitReaction(itemId, emoji, strip, trigger) {
         emoji,
       }),
     });
+    rememberRecentReactionEmoji(emoji);
+    closeReactionPicker();
     updateFeedItemReactions(itemId, payload.reactions || { items: [], viewerEmojis: [], totalCount: 0 });
     setReactionNotice(strip, "");
   } catch (error) {
@@ -715,6 +915,45 @@ function setReactionNotice(strip, message) {
   if (note) {
     note.textContent = message || "";
   }
+}
+
+function openReactionPicker(itemId) {
+  state.reactionPickerItemId = itemId;
+  state.reactionPickerQuery = "";
+  state.reactionPickerCategory = readRecentReactionEmojis().length ? "recent" : "faces";
+}
+
+function closeReactionPicker() {
+  state.reactionPickerItemId = "";
+  state.reactionPickerQuery = "";
+  state.reactionPickerCategory = "recent";
+}
+
+function focusReactionPickerSearch(itemId) {
+  if (!itemId) return;
+  window.setTimeout(() => {
+    const input = refs.homeFeed?.querySelector("[data-reaction-search]");
+    if (!input) return;
+    input.focus();
+    const value = input.value || "";
+    if (typeof input.setSelectionRange === "function") {
+      input.setSelectionRange(value.length, value.length);
+    }
+  }, 20);
+}
+
+function handleHomePageDocumentClick(event) {
+  if (PAGE !== "home" || !state.reactionPickerItemId) return;
+  if (event.target.closest("[data-reaction-strip]")) return;
+  closeReactionPicker();
+  renderHome();
+}
+
+function handleHomePageKeydown(event) {
+  if (PAGE !== "home" || !state.reactionPickerItemId) return;
+  if (event.key !== "Escape") return;
+  closeReactionPicker();
+  renderHome();
 }
 
 function renderFeedCard(item) {
@@ -1433,6 +1672,25 @@ function buildVisitorId() {
     return window.crypto.randomUUID();
   }
   return `visitor-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function readRecentReactionEmojis() {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(RECENT_REACTION_STORAGE_KEY) || "[]");
+    return Array.isArray(value) ? value.filter((item) => typeof item === "string").slice(0, 18) : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+function rememberRecentReactionEmoji(emoji) {
+  if (!emoji) return;
+  const next = [emoji, ...readRecentReactionEmojis().filter((item) => item !== emoji)].slice(0, 18);
+  try {
+    window.localStorage.setItem(RECENT_REACTION_STORAGE_KEY, JSON.stringify(next));
+  } catch (_error) {
+    // Ignore local storage failures and keep the picker usable without recents.
+  }
 }
 
 function readConversationTokens() {
