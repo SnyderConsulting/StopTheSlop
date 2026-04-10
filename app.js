@@ -5,88 +5,22 @@ const SESSION_STORAGE_KEY = "sts_session_token";
 const CONVERSATION_TOKEN_STORAGE_KEY = "sts_conversation_tokens_v1";
 const VISITOR_STORAGE_KEY = "sts_visitor_id_v1";
 const RECENT_REACTION_STORAGE_KEY = "sts_recent_reaction_emojis_v1";
-const REACTION_PICKER_SECTIONS = [
-  {
-    id: "faces",
-    icon: "😵",
-    label: "Faces",
-    items: [
-      { emoji: "😭", label: "cry sob tears same pain" },
-      { emoji: "😂", label: "laugh funny absurd lmao" },
-      { emoji: "😡", label: "angry rage mad furious" },
-      { emoji: "🤯", label: "mind blown wild insane" },
-      { emoji: "😵‍💫", label: "dizzy confused spiral lost" },
-      { emoji: "😬", label: "grimace awkward yikes" },
-      { emoji: "😅", label: "sweat nervous barely okay" },
-      { emoji: "🤔", label: "thinking skeptical hmm" },
-      { emoji: "🙃", label: "upside down sarcasm sure" },
-      { emoji: "🤡", label: "clown embarrassing ridiculous" },
-      { emoji: "💀", label: "dead cooked destroyed" },
-      { emoji: "🤢", label: "nauseous gross bad slop" },
-      { emoji: "🤮", label: "vomit disgusting slop" },
-      { emoji: "😴", label: "boring tired snooze" },
-      { emoji: "😱", label: "scream shocking unbelievable" },
-      { emoji: "🫠", label: "melting broken collapsing" },
-    ],
-  },
-  {
-    id: "hands",
-    icon: "🙌",
-    label: "Hands",
-    items: [
-      { emoji: "👍", label: "thumbs up agree yes" },
-      { emoji: "👎", label: "thumbs down disagree no" },
-      { emoji: "👏", label: "clap applause true" },
-      { emoji: "🙏", label: "please thanks praying" },
-      { emoji: "🙌", label: "celebrate praise win" },
-      { emoji: "🤝", label: "same solidarity handshake" },
-      { emoji: "🫡", label: "salute respect" },
-      { emoji: "🤦", label: "facepalm obvious mess" },
-      { emoji: "🙄", label: "eye roll sure whatever" },
-      { emoji: "✍️", label: "document note write this down" },
-      { emoji: "✅", label: "check correct good" },
-      { emoji: "❌", label: "wrong false broken" },
-    ],
-  },
-  {
-    id: "signal",
-    icon: "🚨",
-    label: "Signals",
-    items: [
-      { emoji: "🚨", label: "alert alarm bad issue" },
-      { emoji: "⚠️", label: "warning caution careful" },
-      { emoji: "🔥", label: "fire hot intense viral" },
-      { emoji: "💯", label: "hundred true exactly" },
-      { emoji: "📉", label: "down bad regression drift" },
-      { emoji: "📈", label: "up improving momentum" },
-      { emoji: "♻️", label: "repeat again loop recursive" },
-      { emoji: "🧨", label: "exploding blow up fail" },
-      { emoji: "💥", label: "impact crash boom" },
-      { emoji: "🧵", label: "thread discussion replies" },
-      { emoji: "📌", label: "pin important bookmark" },
-      { emoji: "🕳️", label: "hole rabbit hole weird" },
-    ],
-  },
-  {
-    id: "tools",
-    icon: "🛠️",
-    label: "Tools",
-    items: [
-      { emoji: "🤖", label: "robot ai bot model" },
-      { emoji: "🧠", label: "brain smart reasoning" },
-      { emoji: "🐛", label: "bug broken error" },
-      { emoji: "🛠️", label: "tools fix work" },
-      { emoji: "🔧", label: "wrench tweak repair" },
-      { emoji: "🗑️", label: "trash garbage slop" },
-      { emoji: "💩", label: "poop garbage slop" },
-      { emoji: "🔁", label: "repeat loop again" },
-      { emoji: "📎", label: "attachment source receipt" },
-      { emoji: "🔍", label: "inspect investigate research" },
-      { emoji: "🧪", label: "experiment test eval" },
-      { emoji: "💻", label: "code developer terminal" },
-    ],
-  },
-];
+const EMOJIBASE_COMPACT_URL = "https://cdn.jsdelivr.net/npm/emojibase-data@latest/en/compact.json";
+const EMOJIBASE_MESSAGES_URL = "https://cdn.jsdelivr.net/npm/emojibase-data@latest/en/messages.json";
+const EMOJI_GROUP_ICONS = {
+  recent: "🕘",
+  "smileys-emotion": "😀",
+  "people-body": "🙌",
+  component: "🏽",
+  "animals-nature": "🌿",
+  "food-drink": "🍔",
+  "travel-places": "✈️",
+  activities: "⚽",
+  objects: "💡",
+  symbols: "🔣",
+  flags: "🏳️",
+};
+let emojiPickerLoadPromise = null;
 
 const refs = {
   authSlot: document.getElementById("auth-slot"),
@@ -142,8 +76,11 @@ const state = {
   homeSubmitting: false,
   conversationSubmitting: false,
   conversation: null,
+  emojiPickerCatalog: null,
+  emojiPickerLoading: false,
+  emojiPickerError: "",
   reactionPickerItemId: "",
-  reactionPickerCategory: "recent",
+  reactionPickerCategory: "",
   reactionPickerQuery: "",
   entitySearchTimer: 0,
   entities: [],
@@ -666,8 +603,32 @@ function renderReactionBar(item) {
 }
 
 function renderReactionPicker(itemId) {
+  if (!state.emojiPickerCatalog && state.emojiPickerLoading) {
+    return `
+      <div class="reaction-picker" data-reaction-picker data-item-id="${escapeHtml(itemId)}">
+        <p class="reaction-picker-empty">Loading the full emoji catalog...</p>
+      </div>
+    `;
+  }
+
+  if (!state.emojiPickerCatalog && state.emojiPickerError) {
+    return `
+      <div class="reaction-picker" data-reaction-picker data-item-id="${escapeHtml(itemId)}">
+        <p class="reaction-picker-empty">${escapeHtml(state.emojiPickerError)}</p>
+        <button class="reaction-picker-close" type="button" data-reload-reaction-picker>Retry</button>
+      </div>
+    `;
+  }
+
   const query = state.reactionPickerQuery || "";
   const sections = buildReactionPickerSections(query);
+  if (!sections.length) {
+    return `
+      <div class="reaction-picker" data-reaction-picker data-item-id="${escapeHtml(itemId)}">
+        <p class="reaction-picker-empty">No emoji are available right now.</p>
+      </div>
+    `;
+  }
   const activeSectionId = resolveReactionPickerSectionId(sections);
   const activeSection = sections.find((section) => section.id === activeSectionId) || sections[0] || null;
   const tabs = sections
@@ -730,6 +691,8 @@ function renderReactionPicker(itemId) {
 }
 
 function buildReactionPickerSections(query) {
+  const catalog = state.emojiPickerCatalog;
+  if (!catalog) return [];
   const normalizedQuery = String(query || "").trim().toLowerCase();
   const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
   const sections = [];
@@ -744,7 +707,7 @@ function buildReactionPickerSections(query) {
     });
   }
 
-  for (const section of REACTION_PICKER_SECTIONS) {
+  for (const section of catalog.groups) {
     sections.push({
       ...section,
       items: filterReactionPickerItems(section.items, tokens),
@@ -759,23 +722,174 @@ function resolveReactionPickerSectionId(sections) {
   if (activeSection && activeSection.items.length) {
     return activeSection.id;
   }
-  return sections.find((section) => section.items.length)?.id || sections[0]?.id || "faces";
+  return sections.find((section) => section.items.length)?.id || sections[0]?.id || "recent";
 }
 
 function filterReactionPickerItems(items, tokens) {
   if (!tokens.length) return items;
   return items.filter((item) => {
-    const haystack = String(item.label || "").toLowerCase();
+    const haystack = String(item.searchText || item.label || "").toLowerCase();
     return tokens.every((token) => haystack.includes(token));
   });
 }
 
 function findReactionEmojiEntry(emoji) {
-  for (const section of REACTION_PICKER_SECTIONS) {
-    const match = section.items.find((item) => item.emoji === emoji);
-    if (match) return match;
+  return state.emojiPickerCatalog?.entriesByKey?.get(normalizeReactionEmojiKey(emoji)) || null;
+}
+
+async function ensureEmojiPickerCatalog() {
+  if (state.emojiPickerCatalog) {
+    return state.emojiPickerCatalog;
   }
-  return null;
+  if (emojiPickerLoadPromise) {
+    return emojiPickerLoadPromise;
+  }
+
+  state.emojiPickerLoading = true;
+  state.emojiPickerError = "";
+  renderHome();
+
+  emojiPickerLoadPromise = Promise.all([
+    fetchAbsoluteJson(EMOJIBASE_COMPACT_URL),
+    fetchAbsoluteJson(EMOJIBASE_MESSAGES_URL),
+  ])
+    .then(([compact, messages]) => {
+      const catalog = buildEmojiPickerCatalog(compact, messages);
+      state.emojiPickerCatalog = catalog;
+      return catalog;
+    })
+    .catch((error) => {
+      state.emojiPickerError = error.message || "Could not load the emoji picker.";
+      throw error;
+    })
+    .finally(() => {
+      state.emojiPickerLoading = false;
+      emojiPickerLoadPromise = null;
+      renderHome();
+      if (state.reactionPickerItemId && state.emojiPickerCatalog) {
+        focusReactionPickerSearch(state.reactionPickerItemId);
+      }
+    });
+
+  return emojiPickerLoadPromise;
+}
+
+function buildEmojiPickerCatalog(compact, messages) {
+  const groupMetadata = Array.isArray(messages?.groups) ? [...messages.groups] : [];
+  const groupsByOrder = new Map(
+    groupMetadata.map((group) => [
+      Number(group.order),
+      {
+        id: String(group.key || `group-${group.order}`),
+        label: capitalizeWords(group.message || group.key || `Group ${group.order}`),
+        icon: EMOJI_GROUP_ICONS[group.key] || "😀",
+        order: Number(group.order || 0),
+        items: [],
+      },
+    ])
+  );
+  const groups = [...groupsByOrder.values()].sort((left, right) => left.order - right.order);
+  const entriesByKey = new Map();
+
+  for (const rawEntry of Array.isArray(compact) ? compact : []) {
+    if (!rawEntry || !rawEntry.unicode) continue;
+    appendEmojiPickerEntry(rawEntry, groupsByOrder, entriesByKey);
+    if (Array.isArray(rawEntry.skins)) {
+      for (const skinEntry of rawEntry.skins) {
+        appendEmojiPickerEntry(
+          {
+            ...skinEntry,
+            group: rawEntry.group,
+            tags: dedupeStrings([...(rawEntry.tags || []), ...(skinEntry.tags || [])]),
+            emoticon: skinEntry.emoticon || rawEntry.emoticon || "",
+            shortcodes: skinEntry.shortcodes || rawEntry.shortcodes || [],
+          },
+          groupsByOrder,
+          entriesByKey
+        );
+      }
+    }
+  }
+
+  for (const group of groups) {
+    group.items.sort((left, right) => Number(left.order || 0) - Number(right.order || 0));
+  }
+
+  return {
+    groups,
+    entriesByKey,
+  };
+}
+
+function appendEmojiPickerEntry(rawEntry, groupsByOrder, entriesByKey) {
+  const emoji = String(rawEntry.unicode || "").trim();
+  const key = normalizeReactionEmojiKey(emoji);
+  if (!emoji || !key || entriesByKey.has(key)) return;
+
+  const groupOrder = Number(rawEntry.group || 0);
+  let group = groupsByOrder.get(groupOrder);
+  if (!group) {
+    group = {
+      id: `group-${groupOrder}`,
+      label: `Group ${groupOrder}`,
+      icon: "😀",
+      order: groupOrder,
+      items: [],
+    };
+    groupsByOrder.set(groupOrder, group);
+  }
+
+  const entry = {
+    emoji,
+    order: Number(rawEntry.order || 0),
+    label: String(rawEntry.label || emoji),
+    searchText: buildEmojiSearchText(rawEntry),
+  };
+  group.items.push(entry);
+  entriesByKey.set(key, entry);
+}
+
+function buildEmojiSearchText(rawEntry) {
+  return dedupeStrings([
+    rawEntry.label,
+    ...(Array.isArray(rawEntry.tags) ? rawEntry.tags : []),
+    rawEntry.emoticon,
+    ...flattenShortcodeTerms(rawEntry.shortcodes),
+  ])
+    .join(" ")
+    .toLowerCase();
+}
+
+function flattenShortcodeTerms(value) {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => flattenShortcodeTerms(item));
+  }
+  if (value && typeof value === "object") {
+    return Object.values(value).flatMap((item) => flattenShortcodeTerms(item));
+  }
+  return [];
+}
+
+function normalizeReactionEmojiKey(emoji) {
+  return String(emoji || "").replace(/\uFE0E|\uFE0F/g, "").trim();
+}
+
+function dedupeStrings(values) {
+  const seen = new Set();
+  const items = [];
+  for (const value of values) {
+    const text = String(value || "").trim();
+    const key = text.toLowerCase();
+    if (!text || seen.has(key)) continue;
+    seen.add(key);
+    items.push(text);
+  }
+  return items;
+}
+
+function capitalizeWords(value) {
+  return String(value || "").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function prependHomePost(post) {
@@ -846,6 +960,11 @@ async function handleHomeFeedClick(event) {
     state.reactionPickerCategory = categoryButton.dataset.reactionCategory || "faces";
     renderHome();
     focusReactionPickerSearch(state.reactionPickerItemId);
+    return;
+  }
+
+  if (event.target.closest("[data-reload-reaction-picker]")) {
+    void ensureEmojiPickerCatalog();
     return;
   }
 
@@ -920,13 +1039,14 @@ function setReactionNotice(strip, message) {
 function openReactionPicker(itemId) {
   state.reactionPickerItemId = itemId;
   state.reactionPickerQuery = "";
-  state.reactionPickerCategory = readRecentReactionEmojis().length ? "recent" : "faces";
+  state.reactionPickerCategory = readRecentReactionEmojis().length ? "recent" : "";
+  void ensureEmojiPickerCatalog();
 }
 
 function closeReactionPicker() {
   state.reactionPickerItemId = "";
   state.reactionPickerQuery = "";
-  state.reactionPickerCategory = "recent";
+  state.reactionPickerCategory = "";
 }
 
 function focusReactionPickerSearch(itemId) {
@@ -1685,7 +1805,8 @@ function readRecentReactionEmojis() {
 
 function rememberRecentReactionEmoji(emoji) {
   if (!emoji) return;
-  const next = [emoji, ...readRecentReactionEmojis().filter((item) => item !== emoji)].slice(0, 18);
+  const key = normalizeReactionEmojiKey(emoji);
+  const next = [emoji, ...readRecentReactionEmojis().filter((item) => normalizeReactionEmojiKey(item) !== key)].slice(0, 18);
   try {
     window.localStorage.setItem(RECENT_REACTION_STORAGE_KEY, JSON.stringify(next));
   } catch (_error) {

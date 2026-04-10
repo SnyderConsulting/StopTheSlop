@@ -358,11 +358,13 @@ a:focus-visible {
   flex-direction: column;
   gap: 12px;
   padding: 14px;
+  max-height: min(62vh, 540px);
   border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background:
     linear-gradient(180deg, rgba(14, 18, 16, 0.98), rgba(9, 12, 11, 0.96)),
     radial-gradient(circle at top right, rgba(110, 214, 255, 0.08), transparent 30%);
+  overflow: hidden;
 }
 
 .reaction-picker-topline {
@@ -418,6 +420,10 @@ a:focus-visible {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
   gap: 8px;
+  max-height: min(48vh, 360px);
+  overflow-y: auto;
+  padding-right: 4px;
+  align-content: start;
 }
 
 .reaction-picker-emoji {
@@ -2109,6 +2115,7 @@ textarea {
 
   .reaction-picker-grid {
     grid-template-columns: repeat(6, minmax(0, 1fr));
+    max-height: min(44vh, 320px);
   }
 
   .post-launcher {
