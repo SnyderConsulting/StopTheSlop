@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Stop The Slop | Public Memory</title>
+  <title>Stop The Slop | Knowledge Graph</title>
   <meta
     name="description"
-    content="Browse the public memory of what people keep discovering about AI tools, models, workflows, and topics."
+    content="Browse the source-backed knowledge graph built from live complaints and crawler content on Stop The Slop."
   />
   <script src="./analytics-config.js"></script>
   <script src="./analytics-bootstrap.js?v=20260327a"></script>
@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="icon" type="image/png" href="./src/StopTheSlopLogo.png" />
-  <link rel="stylesheet" href="./styles.css?v=20260410c" />
+  <link rel="stylesheet" href="./styles.css?v=20260410d" />
 </head>
 <body data-page="wiki">
   <div class="page-shell">
@@ -41,10 +41,10 @@
     <main class="page-stack">
       <section class="page-hero">
         <div class="hero-copy">
-          <p class="eyebrow">Public Memory</p>
-          <h1 class="page-title">See what the site currently remembers about AI.</h1>
+          <p class="eyebrow">Knowledge Graph</p>
+          <h1 class="page-title">Inspect the live graph built from complaints and crawl evidence.</h1>
           <p class="hero-copy-text">
-            This is the public memory layer built from repeated patterns across private submissions and public evidence. It is meant for browsing durable takeaways, not raw posts.
+            This wiki now reflects what is actually live on Stop The Slop today: community complaints plus crawler posts. Every entity, claim, question, and guide is tied back to those source items.
           </p>
         </div>
 
@@ -70,17 +70,17 @@
         <div class="section-heading">
           <div>
             <p class="eyebrow">Explore</p>
-            <h2>Search tools, models, workflows, and topics</h2>
+            <h2>Search graph nodes and inspect their evidence</h2>
           </div>
           <p class="form-note">
-            Search by product, model, vendor, workflow, strength, weakness, or guide language.
+            Search by tool, model, vendor, workflow, failure mode, or claim language.
           </p>
         </div>
 
         <div class="filters entity-filters" aria-label="Wiki filters">
           <label class="search-field entity-search">
-            <span>Search entities</span>
-            <input id="entity-search" type="search" placeholder="Search Claude Code, Chroma, agentic RAG, long context, etc." />
+            <span>Search graph entities</span>
+            <input id="entity-search" type="search" placeholder="Search Claude Code, Cursor, YouTube, long-context drift, AI slop, etc." />
           </label>
         </div>
 
@@ -95,13 +95,35 @@
           </aside>
         </div>
       </section>
+
+      <section class="preview-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Evidence Trail</p>
+            <h2>See the live sources feeding the graph</h2>
+          </div>
+          <p class="form-note">
+            These are the complaint threads and crawler items currently driving the graph.
+          </p>
+        </div>
+
+        <div class="board-layout">
+          <div class="ticket-list" id="wiki-top-threads" aria-live="polite"></div>
+          <aside class="ticket-inspector" id="wiki-source-rollup">
+            <div class="empty-state">
+              <h3>Source domains</h3>
+              <p>Repeated external sources will show up here after crawler content is ingested.</p>
+            </div>
+          </aside>
+        </div>
+      </section>
     </main>
 
     <footer class="footer">
       <img class="footer-logo" src="./src/StopTheSlopLogo.png" alt="Stop The Slop emblem" />
       <div>
         <strong>Stop The Slop</strong>
-        <p>The wiki is the public memory of what people keep discovering, not a dump of raw submissions.</p>
+        <p>The wiki is now a source-backed graph over the live complaint board and crawler feed.</p>
       </div>
       <div class="footer-links">
         <a href="./index.html">Home</a>
@@ -113,6 +135,6 @@
   </div>
 
   <script src="./api-config.js"></script>
-  <script src="./app.js?v=20260410c" defer></script>
+  <script src="./app.js?v=20260410d" defer></script>
 </body>
 </html>

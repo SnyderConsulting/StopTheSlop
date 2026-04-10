@@ -175,10 +175,18 @@ CORS(app, resources={r"/api/*": {"origins": allowed_origins or "*"}})
 _openai_client = None
 _openai_checked = False
 _migration_checked = False
+_public_graph_checked = False
 _live_web_feed_cache = {"expires_at": 0.0, "items": []}
 _background_executor = ThreadPoolExecutor(
     max_workers=max(1, int(os.getenv("BACKGROUND_WORKERS", "2") or "2"))
 )
+
+PUBLIC_GRAPH_READY_FLAG = "public-graph-v1"
+PUBLIC_GRAPH_SOURCE_PREFIX = "pg-src-"
+PUBLIC_GRAPH_ENTITY_PREFIX = "pg-entity-"
+PUBLIC_GRAPH_CLAIM_PREFIX = "pg-claim-"
+PUBLIC_GRAPH_GUIDE_PREFIX = "pg-guide-"
+PUBLIC_GRAPH_QUESTION_PREFIX = "pg-question-"
 
 def infer_subject_names_from_text(
     curated_entities: list[dict[str, Any]],
@@ -805,6 +813,7 @@ def create_source_record(
     content_type: str = "",
     blob_path: str = "",
     moderation_status: str = "accepted",
+    visibility: str = "private",
     created_at: str | None = None,
     source_id: str | None = None,
 ) -> dict[str, Any]:
@@ -822,7 +831,7 @@ def create_source_record(
         "summary": read_text(summary, 600),
         "moderationStatus": moderation_status,
         "redactionNotes": [],
-        "visibility": "private",
+        "visibility": visibility,
         "createdAt": created_at or now_iso(),
     }
     upsert_row(source_record_to_table(record))
@@ -1158,6 +1167,11 @@ def crawl_web_feed(
         stored_items.append(upsert_web_post_record(preview, generated, query))
 
     persist_crawl_run(len(active_queries), len(discovered), len(stored_items), "Daily web crawl")
+    if stored_items:
+        try:
+            rebuild_public_graph_from_live_sources(force_reset=True)
+        except Exception:
+            app.logger.exception("Public graph rebuild failed after web crawl")
     return {
         "queryCount": len(active_queries),
         "discoveredCount": len(discovered),
@@ -2365,85 +2379,837 @@ def build_home_feed_items(viewer_id: str = "") -> list[dict[str, Any]]:
     return attach_thread_summaries(attach_reaction_summaries(mixed[:MAX_FEED_ITEMS], viewer_id), viewer_id)
 
 
-def build_feed(viewer_id: str = "") -> dict[str, Any]:
-    posts = list_posts()
-    web_posts = list_web_posts(limit=18)
-    live_items = build_live_web_feed_items()
-    items = build_home_feed_items(viewer_id)
+def discussion_score(item: dict[str, Any]) -> int:
+    thread = item.get("thread", {}) or {}
+    reactions = item.get("reactions", {}) or {}
+    comment_count = int(thread.get("commentCount", 0) or 0)
+    reaction_count = int(reactions.get("totalCount", 0) or 0)
+    kind_bonus = 1 if item.get("kind") == "post" else 0
+    return (comment_count * 5) + (reaction_count * 2) + kind_bonus
+
+
+def build_public_graph_entity_id(name: str) -> str:
+    normalized = normalize_for_match(name)
+    digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:12]
+    return f"{PUBLIC_GRAPH_ENTITY_PREFIX}{slugify(name)[:40] or 'topic'}-{digest}"
+
+
+def build_public_graph_claim_id(
+    subject_entity_ids: list[str],
+    claim_text: str,
+    claim_type: str,
+    stance: str,
+) -> str:
+    digest = hashlib.sha1(
+        f"{'|'.join(sorted(subject_entity_ids))}|{normalize_for_match(claim_text)}|{claim_type}|{stance}".encode("utf-8")
+    ).hexdigest()[:16]
+    return f"{PUBLIC_GRAPH_CLAIM_PREFIX}{digest}"
+
+
+def build_public_graph_guide_id(title: str, subject_entity_ids: list[str]) -> str:
+    digest = hashlib.sha1(
+        f"{normalize_for_match(title)}|{'|'.join(sorted(subject_entity_ids))}".encode("utf-8")
+    ).hexdigest()[:16]
+    return f"{PUBLIC_GRAPH_GUIDE_PREFIX}{digest}"
+
+
+def build_public_graph_question_id(question_text: str, subject_entity_ids: list[str]) -> str:
+    digest = hashlib.sha1(
+        f"{normalize_for_match(question_text)}|{'|'.join(sorted(subject_entity_ids))}".encode("utf-8")
+    ).hexdigest()[:16]
+    return f"{PUBLIC_GRAPH_QUESTION_PREFIX}{digest}"
+
+
+def build_public_graph_source_id(item_kind: str, item_id: str) -> str:
+    normalized_kind = "post" if item_kind == "post" else "web"
+    return f"{PUBLIC_GRAPH_SOURCE_PREFIX}{normalized_kind}-{read_text(item_id, 160)}"
+
+
+def parse_public_graph_source_id(source_id: str) -> tuple[str, str]:
+    if source_id.startswith(f"{PUBLIC_GRAPH_SOURCE_PREFIX}post-"):
+        return "post", source_id[len(f"{PUBLIC_GRAPH_SOURCE_PREFIX}post-") :]
+    if source_id.startswith(f"{PUBLIC_GRAPH_SOURCE_PREFIX}web-"):
+        return "web_post", source_id[len(f"{PUBLIC_GRAPH_SOURCE_PREFIX}web-") :]
+    return "", ""
+
+
+def row_has_prefix(row: dict[str, Any], prefix: str) -> bool:
+    return read_text(row.get("RowKey"), 200).startswith(prefix)
+
+
+def list_public_graph_sources() -> list[dict[str, Any]]:
+    return [
+        table_to_source_record(row)
+        for row in list_rows(SOURCE_PARTITION_KEY)
+        if row_has_prefix(row, PUBLIC_GRAPH_SOURCE_PREFIX)
+    ]
+
+
+def list_public_graph_entities() -> list[dict[str, Any]]:
+    entities = [
+        table_to_entity_record(row)
+        for row in list_rows(ENTITY_PARTITION_KEY)
+        if row_has_prefix(row, PUBLIC_GRAPH_ENTITY_PREFIX)
+    ]
+    for entity in entities:
+        entity["sourceLinks"] = build_entity_source_links(entity)
+    return entities
+
+
+def list_public_graph_claims() -> list[dict[str, Any]]:
+    return [
+        table_to_claim_record(row)
+        for row in list_rows(CLAIM_PARTITION_KEY)
+        if row_has_prefix(row, PUBLIC_GRAPH_CLAIM_PREFIX)
+    ]
+
+
+def list_public_graph_guides() -> list[dict[str, Any]]:
+    return [
+        table_to_guide_record(row)
+        for row in list_rows(GUIDE_PARTITION_KEY)
+        if row_has_prefix(row, PUBLIC_GRAPH_GUIDE_PREFIX)
+    ]
+
+
+def list_public_graph_questions() -> list[dict[str, Any]]:
+    return [
+        table_to_question_record(row)
+        for row in list_rows(QUESTION_PARTITION_KEY)
+        if row_has_prefix(row, PUBLIC_GRAPH_QUESTION_PREFIX)
+    ]
+
+
+def clear_public_graph_namespace() -> int:
+    client = get_table_client()
+    deleted = 0
+    for partition_key, prefix in (
+        (SOURCE_PARTITION_KEY, PUBLIC_GRAPH_SOURCE_PREFIX),
+        (ENTITY_PARTITION_KEY, PUBLIC_GRAPH_ENTITY_PREFIX),
+        (CLAIM_PARTITION_KEY, PUBLIC_GRAPH_CLAIM_PREFIX),
+        (GUIDE_PARTITION_KEY, PUBLIC_GRAPH_GUIDE_PREFIX),
+        (QUESTION_PARTITION_KEY, PUBLIC_GRAPH_QUESTION_PREFIX),
+    ):
+        for row in list_rows(partition_key):
+            row_key = read_text(row.get("RowKey"), 200)
+            if not row_key.startswith(prefix):
+                continue
+            try:
+                client.delete_entity(partition_key=partition_key, row_key=row_key)
+                deleted += 1
+            except ResourceNotFoundError:
+                continue
+
+    try:
+        client.delete_entity(partition_key=META_PARTITION_KEY, row_key=PUBLIC_GRAPH_READY_FLAG)
+    except ResourceNotFoundError:
+        pass
+    return deleted
+
+
+def create_public_graph_source_from_post(post: dict[str, Any]) -> dict[str, Any]:
+    source_id = build_public_graph_source_id("post", post["id"])
+    return create_source_record(
+        conversation_id=post.get("conversationId", ""),
+        submitter_id=post.get("submitterId", ""),
+        anonymous_handle=post.get("anonymousHandle", ""),
+        kind="post",
+        extracted_text=post.get("text", ""),
+        summary=post.get("summary", "") or post.get("text", ""),
+        visibility="public",
+        created_at=post.get("createdAt", now_iso()),
+        source_id=source_id,
+    )
+
+
+def create_public_graph_source_from_web_post(item: dict[str, Any]) -> dict[str, Any]:
+    source_id = build_public_graph_source_id("web_post", item["id"])
+    extracted_text = "\n\n".join(
+        part
+        for part in [
+            item.get("title", ""),
+            item.get("summary", ""),
+            item.get("body", ""),
+            item.get("angle", ""),
+            " ".join(item.get("tags", []) or []),
+        ]
+        if part
+    )
+    return create_source_record(
+        conversation_id="",
+        submitter_id="",
+        anonymous_handle="crawler",
+        kind="web_post",
+        extracted_text=extracted_text,
+        summary=item.get("title", "") or item.get("summary", ""),
+        source_url=item.get("sourceUrl", ""),
+        visibility="public",
+        created_at=item.get("createdAt", now_iso()),
+        source_id=source_id,
+    )
+
+
+def build_public_graph_source_preview(source: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "kind": source.get("kind", ""),
+            "summary": read_text(source.get("summary"), 400),
+            "sourceUrl": read_text(source.get("sourceUrl"), 300),
+            "filename": read_text(source.get("filename"), 160),
+            "extractedText": read_text(source.get("extractedText"), 3000),
+        }
+    ]
+
+
+def infer_public_graph_entities_from_source(source: dict[str, Any]) -> list[dict[str, Any]]:
+    item = resolve_public_graph_source_item(source.get("id", "")) or {}
+    blob = normalize_for_match(
+        "\n".join(
+            part
+            for part in [
+                read_text(source.get("summary"), 600),
+                read_text(source.get("extractedText"), 6000),
+                read_text(item.get("title"), 240),
+                read_text(item.get("summary"), 400),
+                read_text(item.get("body"), 1200),
+                read_text(item.get("sourceLabel"), 120),
+                " ".join(item.get("tags", []) or []),
+            ]
+            if part
+        )
+    )
+    if not blob:
+        return []
+
+    candidates: list[dict[str, Any]] = []
+    if "ai slop" in blob:
+        candidates.append(
+            {
+                "canonical_name": "AI slop",
+                "entity_type": "concept",
+                "vendor": "",
+                "official_url": "https://en.wikipedia.org/wiki/AI_slop",
+                "aliases": ["AI slop"],
+                "summary": "A term for low-quality, high-volume digital content generated by AI, often for profit.",
+            }
+        )
+
+    tool_families = sorted(TOOL_FAMILY_METADATA.items(), key=lambda item: -len(item[0]))
+    for tool_family, metadata in tool_families:
+        variants = {
+            normalize_for_match(tool_family),
+            normalize_for_match(metadata.get("canonicalName", "")),
+            normalize_for_match(metadata.get("vendor", "")),
+            normalize_for_match(f"{metadata.get('vendor', '')} {metadata.get('canonicalName', '')}"),
+        }
+        variants = {variant for variant in variants if variant}
+        if any(variant and variant in blob for variant in variants):
+            candidates.append(
+                {
+                    "canonical_name": metadata.get("canonicalName", ""),
+                    "entity_type": metadata.get("entityType", "other"),
+                    "vendor": metadata.get("vendor", ""),
+                    "official_url": metadata.get("officialUrl", ""),
+                    "aliases": [],
+                    "summary": "",
+                }
+            )
+
+    deduped: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    for candidate in candidates:
+        normalized = normalize_for_match(candidate.get("canonical_name", ""))
+        if normalized and normalized not in seen_names:
+            seen_names.add(normalized)
+            deduped.append(candidate)
+    return deduped[:6]
+
+
+def find_public_graph_entity_by_name(name: str) -> dict[str, Any] | None:
+    normalized = normalize_for_match(name)
+    if not normalized:
+        return None
+    for entity in list_public_graph_entities():
+        labels = [entity.get("canonicalName", ""), *(entity.get("aliases", []) or [])]
+        if normalized in {normalize_for_match(label) for label in labels if normalize_for_match(label)}:
+            return entity
+    return None
+
+
+def upsert_public_graph_entity(item: dict[str, Any]) -> dict[str, Any] | None:
+    canonical_name = read_text(item.get("canonical_name") or item.get("canonicalName"), 120)
+    entity_type = read_choice(item.get("entity_type") or item.get("entityType"), ENTITY_TYPE_OPTIONS, "other")
+    if not should_keep_entity_candidate(canonical_name, entity_type, read_text(item.get("official_url") or item.get("officialUrl"), 240)):
+        return None
+
+    entity_id = build_public_graph_entity_id(canonical_name)
+    existing_row = get_row(ENTITY_PARTITION_KEY, entity_id)
+    existing = table_to_entity_record(existing_row) if existing_row else infer_entity_record_from_name(canonical_name, entity_type, read_text(item.get("vendor"), 120))
+    record = {
+        **existing,
+        "id": entity_id,
+        "canonicalName": canonical_name,
+        "entityType": entity_type,
+        "vendor": read_text(item.get("vendor"), 120) or existing.get("vendor", ""),
+        "officialUrl": read_text(item.get("official_url") or item.get("officialUrl"), 240) or existing.get("officialUrl", ""),
+        "aliases": merge_unique(existing.get("aliases", []), item.get("aliases", []), limit=12),
+        "summary": read_text(existing.get("summary"), 320) or read_text(item.get("summary"), 320),
+        "description": read_text(existing.get("description"), 320)
+        or read_text(item.get("summary"), 320)
+        or build_entity_description(canonical_name, entity_type, read_text(item.get("vendor"), 120)),
+        "goodFor": existing.get("goodFor", []),
+        "badAt": existing.get("badAt", []),
+        "usedFor": existing.get("usedFor", []),
+        "betterThan": existing.get("betterThan", []),
+        "worseThan": existing.get("worseThan", []),
+        "topTags": existing.get("topTags", []),
+        "topModalities": existing.get("topModalities", []),
+        "topSurfaces": existing.get("topSurfaces", []),
+        "experienceMix": existing.get("experienceMix", {}),
+        "latestTickets": existing.get("latestTickets", []),
+        "stats": existing.get("stats", {}),
+        "createdAt": existing.get("createdAt", now_iso()),
+        "updatedAt": now_iso(),
+    }
+    upsert_row(entity_record_to_table(record))
+    record["sourceLinks"] = build_entity_source_links(record)
+    return record
+
+
+def resolve_public_graph_subject_entities(
+    extraction_entities: list[dict[str, Any]],
+    created_entities: list[dict[str, Any]],
+    subject_names: list[str],
+) -> list[dict[str, Any]]:
+    extracted_index = {
+        normalize_for_match(item.get("canonical_name", "")): item
+        for item in extraction_entities
+        if normalize_for_match(item.get("canonical_name", ""))
+    }
+    resolved: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    existing_entities = list_public_graph_entities()
+
+    def add_entity(candidate: dict[str, Any] | None) -> None:
+        if not candidate:
+            return
+        entity_id = read_text(candidate.get("id"), 120)
+        if not entity_id or entity_id in seen_ids:
+            return
+        seen_ids.add(entity_id)
+        resolved.append(candidate)
+
+    label_index: dict[str, dict[str, Any]] = {}
+    for entity in [*created_entities, *existing_entities]:
+        for label in [entity.get("canonicalName", ""), *(entity.get("aliases", []) or [])]:
+            normalized = normalize_for_match(label)
+            if normalized and normalized not in label_index:
+                label_index[normalized] = entity
+
+    for name in dedupe_texts(subject_names, limit=6):
+        normalized = normalize_for_match(name)
+        if not normalized:
+            continue
+        if normalized in label_index:
+            add_entity(label_index[normalized])
+            continue
+        if normalized in extracted_index:
+            add_entity(upsert_public_graph_entity(extracted_index[normalized]))
+            continue
+        if should_keep_entity_candidate(name, "other"):
+            add_entity(upsert_public_graph_entity({"canonical_name": name, "entity_type": "other"}))
+    return resolved
+
+
+def pick_primary_public_graph_entity(entities: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    priority = {
+        "product": 0,
+        "tool": 0,
+        "model": 0,
+        "service": 1,
+        "framework": 1,
+        "dataset": 1,
+        "concept": 2,
+        "topic": 2,
+        "other": 2,
+        "company": 3,
+        "vendor": 3,
+    }
+    ranked = sorted(
+        [entity for entity in entities if read_text(entity.get("id"), 120)],
+        key=lambda entity: (
+            priority.get(read_text(entity.get("entityType"), 40), 2),
+            -len(read_text(entity.get("canonicalName"), 120)),
+            entity.get("canonicalName", "").lower(),
+        ),
+    )
+    return ranked[:1]
+
+
+def upsert_public_graph_claim(
+    claim_text: str,
+    claim_type: str,
+    stance: str,
+    subject_entities: list[dict[str, Any]],
+    source_ids: list[str],
+    tags: list[str],
+    confidence: float,
+) -> dict[str, Any] | None:
+    subject_entity_ids = [entity["id"] for entity in subject_entities if read_text(entity.get("id"), 120)]
+    subject_names = [entity.get("canonicalName", "") for entity in subject_entities if entity.get("canonicalName")]
+    if not subject_entity_ids or not should_keep_claim_text(claim_text):
+        return None
+
+    claim_id = build_public_graph_claim_id(subject_entity_ids, claim_text, claim_type, stance)
+    existing = get_row(CLAIM_PARTITION_KEY, claim_id)
+    record = table_to_claim_record(existing) if existing else {
+        "id": claim_id,
+        "subjectEntityIds": subject_entity_ids,
+        "subjectNames": subject_names,
+        "claimText": claim_text,
+        "claimType": claim_type,
+        "stance": stance,
+        "tags": tags,
+        "sourceIds": [],
+        "supportCount": 0,
+        "opposeCount": 0,
+        "confidence": 0.0,
+        "createdAt": now_iso(),
+        "updatedAt": now_iso(),
+    }
+    record["subjectEntityIds"] = merge_unique(record.get("subjectEntityIds", []), subject_entity_ids, limit=8)
+    record["subjectNames"] = merge_unique(record.get("subjectNames", []), subject_names, limit=8)
+    record["tags"] = merge_unique(record.get("tags", []), tags, limit=10)
+    record["sourceIds"] = merge_unique(record.get("sourceIds", []), source_ids, limit=60)
+    record["supportCount"] = len(record.get("sourceIds", []))
+    record["confidence"] = max(float(record.get("confidence", 0.0) or 0.0), float(confidence or 0.0))
+    record["updatedAt"] = now_iso()
+    upsert_row(claim_record_to_table(record))
+    return record
+
+
+def upsert_public_graph_guide(
+    title: str,
+    summary: str,
+    steps: list[str],
+    subject_entities: list[dict[str, Any]],
+    source_ids: list[str],
+) -> dict[str, Any] | None:
+    subject_entity_ids = [entity["id"] for entity in subject_entities if read_text(entity.get("id"), 120)]
+    subject_names = [entity.get("canonicalName", "") for entity in subject_entities if entity.get("canonicalName")]
+    if not subject_entity_ids or not should_keep_guide(title, summary, steps, subject_names):
+        return None
+
+    guide_id = build_public_graph_guide_id(title, subject_entity_ids)
+    existing = get_row(GUIDE_PARTITION_KEY, guide_id)
+    record = table_to_guide_record(existing) if existing else {
+        "id": guide_id,
+        "title": title,
+        "summary": summary,
+        "steps": steps,
+        "subjectEntityIds": subject_entity_ids,
+        "subjectNames": subject_names,
+        "sourceIds": [],
+        "createdAt": now_iso(),
+        "updatedAt": now_iso(),
+    }
+    record["summary"] = read_text(record.get("summary"), 320) or summary
+    record["steps"] = merge_unique(record.get("steps", []), steps, limit=10)
+    record["subjectEntityIds"] = merge_unique(record.get("subjectEntityIds", []), subject_entity_ids, limit=8)
+    record["subjectNames"] = merge_unique(record.get("subjectNames", []), subject_names, limit=8)
+    record["sourceIds"] = merge_unique(record.get("sourceIds", []), source_ids, limit=60)
+    record["updatedAt"] = now_iso()
+    upsert_row(guide_record_to_table(record))
+    return record
+
+
+def upsert_public_graph_question(
+    question_text: str,
+    status: str,
+    subject_entities: list[dict[str, Any]],
+    source_ids: list[str],
+) -> dict[str, Any] | None:
+    subject_entity_ids = [entity["id"] for entity in subject_entities if read_text(entity.get("id"), 120)]
+    subject_names = [entity.get("canonicalName", "") for entity in subject_entities if entity.get("canonicalName")]
+    if not should_keep_question_text(question_text, question_text, subject_names):
+        return None
+
+    question_id = build_public_graph_question_id(question_text, subject_entity_ids)
+    existing = get_row(QUESTION_PARTITION_KEY, question_id)
+    record = table_to_question_record(existing) if existing else {
+        "id": question_id,
+        "questionText": question_text,
+        "subjectEntityIds": subject_entity_ids,
+        "subjectNames": subject_names,
+        "sourceIds": [],
+        "status": "open",
+        "createdAt": now_iso(),
+        "updatedAt": now_iso(),
+    }
+    record["subjectEntityIds"] = merge_unique(record.get("subjectEntityIds", []), subject_entity_ids, limit=8)
+    record["subjectNames"] = merge_unique(record.get("subjectNames", []), subject_names, limit=8)
+    record["sourceIds"] = merge_unique(record.get("sourceIds", []), source_ids, limit=60)
+    record["status"] = read_choice(status, QUESTION_STATUS_OPTIONS, record.get("status", "open"))
+    record["updatedAt"] = now_iso()
+    upsert_row(question_record_to_table(record))
+    return record
+
+
+def ingest_public_graph_source(source: dict[str, Any]) -> dict[str, Any]:
+    extracted_text = read_text(source.get("extractedText"), MAX_EXTRACTED_TEXT_CHARS)
+    if not extracted_text or not has_ai_topic_signal(extracted_text):
+        return {"entities": 0, "claims": 0, "guides": 0, "questions": 0}
+
+    extraction = extract_submission_signals(
+        extracted_text if source.get("kind") == "post" else "",
+        extracted_text,
+        build_public_graph_source_preview(source),
+        [],
+    )
+    if extraction.get("moderation_action") == "reject":
+        return {"entities": 0, "claims": 0, "guides": 0, "questions": 0}
+
+    heuristic_entities = infer_public_graph_entities_from_source(source)
+    merged_entities: list[dict[str, Any]] = []
+    seen_entity_names: set[str] = set()
+    for entity in [*(extraction.get("entities", []) or []), *heuristic_entities]:
+        normalized = normalize_for_match(entity.get("canonical_name", "") or entity.get("canonicalName", ""))
+        if not normalized or normalized in seen_entity_names:
+            continue
+        seen_entity_names.add(normalized)
+        merged_entities.append(entity)
+    extraction["entities"] = merged_entities
+
+    source_ids = [source["id"]]
+    created_entities = [item for item in (upsert_public_graph_entity(entity) for entity in extraction.get("entities", [])) if item]
+
+    claims_created = 0
+    guides_created = 0
+    questions_created = 0
+
+    for claim in extraction.get("claims", []):
+        subjects = resolve_public_graph_subject_entities(
+            extraction.get("entities", []),
+            created_entities,
+            claim.get("subject_names", []),
+        )
+        if not subjects and created_entities:
+            subjects = pick_primary_public_graph_entity(created_entities)
+        created = upsert_public_graph_claim(
+            claim.get("claim_text", ""),
+            claim.get("claim_type", "observation"),
+            claim.get("stance", "neutral"),
+            subjects,
+            source_ids,
+            claim.get("tags", []),
+            float(claim.get("confidence", 0.0) or 0.0),
+        )
+        if created:
+            claims_created += 1
+
+    for guide in extraction.get("guides", []):
+        subjects = resolve_public_graph_subject_entities(
+            extraction.get("entities", []),
+            created_entities,
+            guide.get("subject_names", []),
+        )
+        if not subjects and created_entities:
+            subjects = pick_primary_public_graph_entity(created_entities)
+        created = upsert_public_graph_guide(
+            guide.get("title", ""),
+            guide.get("summary", ""),
+            guide.get("steps", []),
+            subjects,
+            source_ids,
+        )
+        if created:
+            guides_created += 1
+
+    for question in extraction.get("questions", []):
+        subjects = resolve_public_graph_subject_entities(
+            extraction.get("entities", []),
+            created_entities,
+            question.get("subject_names", []),
+        )
+        created = upsert_public_graph_question(
+            question.get("question_text", ""),
+            question.get("status", "open"),
+            subjects,
+            source_ids,
+        )
+        if created:
+            questions_created += 1
+
     return {
-        "metrics": {
-            "postCount": len(posts),
-            "webPostCount": len(web_posts),
-            "liveResultCount": len(live_items),
-            "sourceCount": len(posts) + len(web_posts),
-            "entityCount": 0,
-            "claimCount": 0,
-            "guideCount": 0,
-        },
-        "items": items,
-        "featuredEntities": [],
+        "entities": len(created_entities),
+        "claims": claims_created,
+        "guides": guides_created,
+        "questions": questions_created,
     }
 
 
-def build_entity_detail(entity_id: str) -> dict[str, Any] | None:
-    entity = get_entity_record(entity_id)
-    if not entity:
+def rebuild_public_graph_from_live_sources(force_reset: bool = False) -> dict[str, Any]:
+    global _public_graph_checked
+    if force_reset:
+        clear_public_graph_namespace()
+
+    totals = {"sources": 0, "entities": 0, "claims": 0, "guides": 0, "questions": 0}
+    for post in reversed(list_posts()):
+        source = create_public_graph_source_from_post(post)
+        counts = ingest_public_graph_source(source)
+        totals["sources"] += 1
+        for key in ("entities", "claims", "guides", "questions"):
+            totals[key] += int(counts.get(key, 0))
+
+    for item in reversed(list_web_posts()):
+        source = create_public_graph_source_from_web_post(item)
+        counts = ingest_public_graph_source(source)
+        totals["sources"] += 1
+        for key in ("entities", "claims", "guides", "questions"):
+            totals[key] += int(counts.get(key, 0))
+
+    set_meta_flag(PUBLIC_GRAPH_READY_FLAG, {"rebuiltAt": now_iso(), **totals})
+    _public_graph_checked = True
+    return totals
+
+
+def ensure_public_graph_materialized() -> None:
+    global _public_graph_checked
+    if _public_graph_checked and ensure_meta_flag(PUBLIC_GRAPH_READY_FLAG):
+        return
+    if not ensure_meta_flag(PUBLIC_GRAPH_READY_FLAG):
+        rebuild_public_graph_from_live_sources(force_reset=True)
+    _public_graph_checked = True
+
+
+def resolve_public_graph_source_item(source_id: str, viewer_id: str = "") -> dict[str, Any] | None:
+    kind, item_id = parse_public_graph_source_id(source_id)
+    if kind == "post":
+        row = get_row(POST_PARTITION_KEY, item_id)
+        if not row:
+            return None
+        items = [build_public_post_item(table_to_post_record(row))]
+    elif kind == "web_post":
+        row = get_row(WEB_POST_PARTITION_KEY, item_id)
+        if not row:
+            return None
+        items = [build_public_web_item(table_to_web_post_record(row), "web_post")]
+    else:
         return None
+    return attach_thread_summaries(attach_reaction_summaries(items, viewer_id), viewer_id)[0]
 
-    if not is_publishable_entity_record(entity):
-        return None
 
-    claims = [
-        claim
-        for claim in list_claims()
-        if entity_id in claim.get("subjectEntityIds", [])
-        and is_publishable_claim_record(claim)
-    ]
-    guides = [
-        guide
-        for guide in list_guides()
-        if entity_id in guide.get("subjectEntityIds", [])
-    ]
-    questions = [
-        question
-        for question in list_questions()
-        if entity_id in question.get("subjectEntityIds", [])
-        and is_publishable_question_record(question)
-    ]
-    related_entity_ids: set[str] = set()
-    for claim in claims[:12]:
-        for related_id in claim.get("subjectEntityIds", []):
-            if related_id and related_id != entity_id:
-                related_entity_ids.add(related_id)
-    related_entities = [get_entity_record(related_id) for related_id in sorted(related_entity_ids)]
-    related_entities = [entity for entity in related_entities if entity and is_publishable_entity_record(entity)]
+def build_public_graph_source_rollup(web_posts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rollups: dict[str, dict[str, Any]] = {}
+    for post in web_posts:
+        domain = normalize_domain(post.get("sourceDomain", ""))
+        label = read_text(post.get("sourceLabel"), 120) or domain or "Unknown source"
+        key = domain or normalize_for_match(label)
+        if not key:
+            continue
+        current = rollups.get(key)
+        if not current:
+            current = {
+                "id": f"source-{slugify(key)}",
+                "label": label,
+                "domain": domain,
+                "count": 0,
+                "latestSeenAt": "",
+                "latestTitle": "",
+                "latestUrl": "",
+                "sourceTypes": [],
+                "tags": [],
+            }
+            rollups[key] = current
+        current["count"] += 1
+        current["sourceTypes"] = dedupe_texts([*current.get("sourceTypes", []), post.get("sourceType", "")], limit=4)
+        current["tags"] = dedupe_texts([*current.get("tags", []), *(post.get("tags", []) or [])], limit=5)
+        latest_at = read_text(post.get("updatedAt") or post.get("createdAt"), 80)
+        if latest_at >= read_text(current.get("latestSeenAt"), 80):
+            current["latestSeenAt"] = latest_at
+            current["latestTitle"] = read_text(post.get("title"), 180)
+            current["latestUrl"] = read_text(post.get("sourceUrl"), 1800)
+    return sorted(
+        rollups.values(),
+        key=lambda item: (-int(item.get("count", 0)), item.get("latestSeenAt", ""), item.get("label", "").lower()),
+    )[:12]
 
+
+def build_public_graph_metrics() -> dict[str, Any]:
+    if not ensure_meta_flag(PUBLIC_GRAPH_READY_FLAG):
+        return {"sourceCount": 0, "entityCount": 0, "claimCount": 0, "guideCount": 0, "questionCount": 0}
+    return {
+        "sourceCount": len(list_public_graph_sources()),
+        "entityCount": len(list_public_graph_entities()),
+        "claimCount": len(list_public_graph_claims()),
+        "guideCount": len(list_public_graph_guides()),
+        "questionCount": len(list_public_graph_questions()),
+    }
+
+
+def build_public_graph_entity_summary(
+    entity: dict[str, Any],
+    claims: list[dict[str, Any]],
+    guides: list[dict[str, Any]],
+    questions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    source_ids = dedupe_texts(
+        [source_id for item in [*claims, *guides, *questions] for source_id in item.get("sourceIds", [])],
+        limit=80,
+    )
+    summary = (
+        read_text(entity.get("summary"), 320)
+        or read_text(entity.get("description"), 320)
+        or read_text((claims[0] if claims else {}).get("claimText"), 320)
+        or read_text((guides[0] if guides else {}).get("summary"), 320)
+        or build_entity_description(entity.get("canonicalName", ""), entity.get("entityType", "other"), entity.get("vendor", ""))
+    )
     return {
         **entity,
-        "claims": sorted(claims, key=lambda item: (-item.get("supportCount", 0), item.get("updatedAt", "")))[:16],
-        "guides": sorted(guides, key=lambda item: item.get("updatedAt", ""), reverse=True)[:10],
-        "questions": sorted(questions, key=lambda item: item.get("updatedAt", ""), reverse=True)[:10],
-        "relatedEntities": related_entities[:8],
+        "summary": summary,
+        "description": read_text(entity.get("description"), 320) or summary,
+        "goodFor": dedupe_texts([item.get("claimText", "") for item in claims if item.get("claimType") == "good_for"], limit=8),
+        "badAt": dedupe_texts([item.get("claimText", "") for item in claims if item.get("claimType") == "bad_at"], limit=8),
+        "usedFor": dedupe_texts([item.get("claimText", "") for item in claims if item.get("claimType") == "used_for"], limit=8),
+        "stats": {
+            "sourceCount": len(source_ids),
+            "claimCount": len(claims),
+            "guideCount": len(guides),
+            "questionCount": len(questions),
+        },
         "sourceLinks": build_entity_source_links(entity),
     }
 
 
-def search_entities(query_text: str) -> list[dict[str, Any]]:
-    query = read_text(query_text, 180)
-    entities = [entity for entity in list_entities() if is_publishable_entity_record(entity)]
-    if not query:
-        return entities
-    scored = []
+def build_public_graph_entity_collections() -> tuple[
+    list[dict[str, Any]],
+    dict[str, dict[str, Any]],
+    dict[str, list[dict[str, Any]]],
+    dict[str, list[dict[str, Any]]],
+    dict[str, list[dict[str, Any]]],
+]:
+    entities = list_public_graph_entities()
+    claims_by_entity: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    guides_by_entity: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    questions_by_entity: dict[str, list[dict[str, Any]]] = defaultdict(list)
+
+    for claim in list_public_graph_claims():
+        for entity_id in claim.get("subjectEntityIds", []):
+            claims_by_entity[entity_id].append(claim)
+    for guide in list_public_graph_guides():
+        for entity_id in guide.get("subjectEntityIds", []):
+            guides_by_entity[entity_id].append(guide)
+    for question in list_public_graph_questions():
+        for entity_id in question.get("subjectEntityIds", []):
+            questions_by_entity[entity_id].append(question)
+
+    entity_models: list[dict[str, Any]] = []
     for entity in entities:
+        entity_id = read_text(entity.get("id"), 120)
+        claims = sorted(claims_by_entity.get(entity_id, []), key=lambda item: (-item.get("supportCount", 0), item.get("updatedAt", "")))
+        guides = sorted(guides_by_entity.get(entity_id, []), key=lambda item: item.get("updatedAt", ""), reverse=True)
+        questions = sorted(questions_by_entity.get(entity_id, []), key=lambda item: item.get("updatedAt", ""), reverse=True)
+        model = build_public_graph_entity_summary(entity, claims, guides, questions)
+        if sum(model.get("stats", {}).values()) <= 0:
+            continue
+        entity_models.append(model)
+
+    entity_models.sort(
+        key=lambda item: (
+            -int((item.get("stats") or {}).get("sourceCount", 0)),
+            -int((item.get("stats") or {}).get("claimCount", 0)),
+            item.get("canonicalName", "").lower(),
+        )
+    )
+    return (
+        entity_models,
+        {entity["id"]: entity for entity in entity_models},
+        claims_by_entity,
+        guides_by_entity,
+        questions_by_entity,
+    )
+
+
+def build_entity_detail(entity_id: str, viewer_id: str = "") -> dict[str, Any] | None:
+    ensure_public_graph_materialized()
+    entity_models, entities_by_id, claims_by_entity, guides_by_entity, questions_by_entity = build_public_graph_entity_collections()
+    entity = entities_by_id.get(entity_id)
+    if not entity:
+        return None
+
+    claims = sorted(claims_by_entity.get(entity_id, []), key=lambda item: (-item.get("supportCount", 0), item.get("updatedAt", "")))
+    guides = sorted(guides_by_entity.get(entity_id, []), key=lambda item: item.get("updatedAt", ""), reverse=True)
+    questions = sorted(questions_by_entity.get(entity_id, []), key=lambda item: item.get("updatedAt", ""), reverse=True)
+    source_ids = dedupe_texts(
+        [source_id for item in [*claims, *guides, *questions] for source_id in item.get("sourceIds", [])],
+        limit=80,
+    )
+    source_items = [
+        item
+        for item in (resolve_public_graph_source_item(source_id, viewer_id) for source_id in source_ids)
+        if item
+    ]
+    source_items = sorted(
+        source_items,
+        key=lambda item: (read_text(item.get("updatedAt") or item.get("createdAt"), 80), item.get("id", "")),
+        reverse=True,
+    )[:8]
+
+    related_scores: dict[str, int] = defaultdict(int)
+    source_id_set = set(source_ids)
+    for artifact in [*list_public_graph_claims(), *list_public_graph_guides(), *list_public_graph_questions()]:
+        artifact_entity_ids = [value for value in artifact.get("subjectEntityIds", []) if value]
+        if entity_id in artifact_entity_ids:
+            for related_id in artifact_entity_ids:
+                if related_id and related_id != entity_id:
+                    related_scores[related_id] += 3
+        if source_id_set.intersection(set(artifact.get("sourceIds", []))):
+            for related_id in artifact_entity_ids:
+                if related_id and related_id != entity_id:
+                    related_scores[related_id] += 1
+
+    related_entities = [
+        entities_by_id[related_id]
+        for related_id, _score in sorted(
+            related_scores.items(),
+            key=lambda item: (-item[1], entities_by_id.get(item[0], {}).get("canonicalName", "").lower()),
+        )
+        if related_id in entities_by_id
+    ][:8]
+
+    return {
+        **entity,
+        "claims": claims[:16],
+        "guides": guides[:10],
+        "questions": questions[:10],
+        "sources": source_items,
+        "sourceDomains": dedupe_texts(
+            [item.get("sourceDomain") or item.get("sourceLabel", "") for item in source_items if item.get("kind") == "web_post"],
+            limit=8,
+        ),
+        "relatedEntities": related_entities,
+    }
+
+
+def search_entities(query_text: str) -> list[dict[str, Any]]:
+    ensure_public_graph_materialized()
+    query = read_text(query_text, 180)
+    entities, _entities_by_id, claims_by_entity, guides_by_entity, questions_by_entity = build_public_graph_entity_collections()
+    if not query:
+        return entities[:18]
+
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for entity in entities:
+        entity_id = entity["id"]
         blob = " ".join(
             [
                 entity.get("canonicalName", ""),
                 entity.get("summary", ""),
                 entity.get("vendor", ""),
                 " ".join(entity.get("aliases", [])),
-                " ".join(entity.get("goodFor", [])),
-                " ".join(entity.get("badAt", [])),
-                " ".join(entity.get("usedFor", [])),
+                " ".join(item.get("claimText", "") for item in claims_by_entity.get(entity_id, [])[:6]),
+                " ".join(item.get("title", "") for item in guides_by_entity.get(entity_id, [])[:4]),
+                " ".join(item.get("questionText", "") for item in questions_by_entity.get(entity_id, [])[:4]),
             ]
         )
         score = score_text_match(blob, query)
@@ -2451,6 +3217,63 @@ def search_entities(query_text: str) -> list[dict[str, Any]]:
             scored.append((score, entity))
     scored.sort(key=lambda item: (-item[0], item[1].get("canonicalName", "").lower()))
     return [entity for _score, entity in scored[:18]]
+
+
+def build_wiki(viewer_id: str = "") -> dict[str, Any]:
+    ensure_public_graph_materialized()
+    posts = list_posts()
+    web_posts = list_web_posts(limit=32)
+    community_items = attach_thread_summaries(
+        attach_reaction_summaries([build_public_post_item(post) for post in posts[:12]], viewer_id),
+        viewer_id,
+    )
+    crawler_items = attach_thread_summaries(
+        attach_reaction_summaries([build_public_web_item(item, "web_post") for item in web_posts[:12]], viewer_id),
+        viewer_id,
+    )
+    discussion_items = sorted(
+        [*community_items, *crawler_items],
+        key=lambda item: (discussion_score(item), read_text(item.get("updatedAt") or item.get("createdAt"), 80)),
+        reverse=True,
+    )[:8]
+    metrics = build_public_graph_metrics()
+    metrics.update(
+        {
+            "postCount": len(posts),
+            "webPostCount": len(web_posts),
+            "liveResultCount": 0,
+            "sourceDomainCount": len(build_public_graph_source_rollup(web_posts)),
+        }
+    )
+    return {
+        "metrics": metrics,
+        "entities": search_entities("")[:12],
+        "topThreads": discussion_items,
+        "latestCommunity": community_items[:8],
+        "latestCrawler": crawler_items[:8],
+        "sources": build_public_graph_source_rollup(web_posts),
+    }
+
+
+def build_feed(viewer_id: str = "") -> dict[str, Any]:
+    posts = list_posts()
+    web_posts = list_web_posts(limit=18)
+    live_items = build_live_web_feed_items()
+    items = build_home_feed_items(viewer_id)
+    graph_metrics = build_public_graph_metrics()
+    return {
+        "metrics": {
+            "postCount": len(posts),
+            "webPostCount": len(web_posts),
+            "liveResultCount": len(live_items),
+            "sourceCount": graph_metrics.get("sourceCount", len(posts) + len(web_posts)),
+            "entityCount": graph_metrics.get("entityCount", 0),
+            "claimCount": graph_metrics.get("claimCount", 0),
+            "guideCount": graph_metrics.get("guideCount", 0),
+        },
+        "items": items,
+        "featuredEntities": [],
+    }
 
 
 def legacy_entity_to_ticket(entity: dict[str, Any]) -> dict[str, Any]:
@@ -2823,6 +3646,7 @@ def submit_post():
     payload = request.get_json(silent=True) or {}
     text = read_text(payload.get("text"), 6000)
     post = create_post_record(text, submitter_id, anonymous_handle)
+    _background_executor.submit(ingest_public_graph_source, create_public_graph_source_from_post(post))
     return (
         jsonify(
             {
@@ -2857,6 +3681,12 @@ def sign_in_with_google():
 def get_feed():
     visitor_id = read_text(request.args.get("visitorId"), 120)
     return jsonify(build_feed(visitor_id))
+
+
+@app.get("/api/wiki")
+def get_wiki():
+    visitor_id = read_text(request.args.get("visitorId"), 120)
+    return jsonify(build_wiki(visitor_id))
 
 
 @app.get("/api/items/<item_id>")
@@ -2928,15 +3758,14 @@ def react_to_item(item_id: str):
 
 @app.get("/api/entities")
 def get_entities():
-    ensure_legacy_graph_migration()
     query = read_text(request.args.get("q"), 180)
     return jsonify(search_entities(query))
 
 
 @app.get("/api/entities/<entity_id>")
 def get_entity(entity_id: str):
-    ensure_legacy_graph_migration()
-    entity = build_entity_detail(entity_id)
+    visitor_id = read_text(request.args.get("visitorId"), 120)
+    entity = build_entity_detail(entity_id, viewer_id=visitor_id)
     if not entity:
         return jsonify({"detail": "Entity not found."}), 404
     return jsonify(entity)

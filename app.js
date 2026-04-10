@@ -51,6 +51,8 @@ const refs = {
   entitySearch: document.getElementById("entity-search"),
   entityList: document.getElementById("entity-list"),
   entityInspector: document.getElementById("entity-inspector"),
+  wikiTopThreads: document.getElementById("wiki-top-threads"),
+  wikiSourceRollup: document.getElementById("wiki-source-rollup"),
   mcpStatus: document.getElementById("mcp-status"),
   mcpTransport: document.getElementById("mcp-transport"),
   mcpEndpoint: document.getElementById("mcp-endpoint"),
@@ -89,6 +91,7 @@ const state = {
   postCommentSubmitting: false,
   conversation: null,
   postThread: null,
+  wiki: null,
   emojiPickerCatalog: null,
   emojiPickerLoading: false,
   emojiPickerError: "",
@@ -407,6 +410,15 @@ async function loadWikiPage() {
   if (query && refs.entitySearch) {
     refs.entitySearch.value = query;
   }
+  renderWikiLoading();
+  try {
+    const wikiQuery = state.visitorId ? `?visitorId=${encodeURIComponent(state.visitorId)}` : "";
+    state.wiki = await apiFetch(`/api/wiki${wikiQuery}`);
+    syncMetrics(state.wiki?.metrics);
+    renderWiki(state.wiki);
+  } catch (error) {
+    renderWikiUnavailable(error.message || "Could not load the knowledge graph.");
+  }
   await loadEntityList(refs.entitySearch?.value || "");
 }
 
@@ -481,7 +493,8 @@ async function selectEntity(entityId, pushState) {
   }
 
   try {
-    const entity = await apiFetch(`/api/entities/${encodeURIComponent(entityId)}`);
+    const query = state.visitorId ? `?visitorId=${encodeURIComponent(state.visitorId)}` : "";
+    const entity = await apiFetch(`/api/entities/${encodeURIComponent(entityId)}${query}`);
     renderEntityInspector(entity);
   } catch (error) {
     renderEntityInspectorError(error.message || "Could not load entity.");
@@ -1567,12 +1580,12 @@ function renderConversationSidebar(conversation) {
 
 function renderEntityListLoading() {
   if (!refs.entityList) return;
-  refs.entityList.innerHTML = renderStateCard("Loading topics", "Reading the latest public memory for tools, models, and workflows.");
+  refs.entityList.innerHTML = renderStateCard("Loading graph nodes", "Reading the live entities distilled from complaints and crawler sources.");
 }
 
 function renderEntityListError(message) {
   if (refs.entityList) {
-    refs.entityList.innerHTML = renderStateCard("Topics unavailable", message);
+    refs.entityList.innerHTML = renderStateCard("Graph unavailable", message);
   }
   renderEntityInspectorError(message);
 }
@@ -1580,7 +1593,7 @@ function renderEntityListError(message) {
 function renderEntityList(entities) {
   if (!refs.entityList) return;
   if (!entities.length) {
-    refs.entityList.innerHTML = renderStateCard("No topics found", "Try a broader search or add new source material from the home composer.");
+    refs.entityList.innerHTML = renderStateCard("No entities found", "Try a broader search or wait for more live sources to be ingested.");
     return;
   }
 
@@ -1614,15 +1627,15 @@ function renderEntityInspectorEmpty() {
   if (!refs.entityInspector) return;
   refs.entityInspector.innerHTML = `
     <div class="empty-state">
-      <h3>Select a topic</h3>
-      <p>Open any topic to see what the public memory currently says, what guides exist, and where questions remain open.</p>
+      <h3>Select a graph node</h3>
+      <p>Open any entity to inspect the claims, questions, guides, and source evidence currently attached to it.</p>
     </div>
   `;
 }
 
 function renderEntityInspectorError(message) {
   if (!refs.entityInspector) return;
-  refs.entityInspector.innerHTML = renderStateCard("Topic unavailable", message);
+  refs.entityInspector.innerHTML = renderStateCard("Entity unavailable", message);
 }
 
 function renderEntityInspector(entity) {
@@ -1651,9 +1664,11 @@ function renderEntityInspector(entity) {
       ${renderChipSection("Good For", entity.goodFor)}
       ${renderChipSection("Bad At", entity.badAt)}
       ${renderChipSection("Used For", entity.usedFor)}
+      ${renderChipSection("Source Domains", entity.sourceDomains)}
       ${renderClaimSection("Claims", entity.claims || [])}
       ${renderGuideSection("Guides", entity.guides || [])}
       ${renderQuestionSection("Questions", entity.questions || [])}
+      ${renderSourceEvidenceSection("Evidence", entity.sources || [])}
       ${renderRelatedEntitiesSection(entity.relatedEntities || [])}
     </div>
   `;
@@ -1763,6 +1778,36 @@ function renderRelatedEntitiesSection(entities) {
   `;
 }
 
+function renderSourceEvidenceSection(title, sources) {
+  if (!sources.length) return "";
+  return `
+    <div class="inspector-block">
+      <h4>${escapeHtml(title)}</h4>
+      <div class="entity-section-list">
+        ${sources
+          .map(
+            (source) => `
+              <article class="entity-section-card">
+                <div class="ticket-meta">
+                  <span class="meta-pill">${escapeHtml(formatKind(source.kind || "post"))}</span>
+                  ${source.sourceDomain ? `<span class="meta-pill">${escapeHtml(source.sourceDomain)}</span>` : ""}
+                  ${source.createdAt ? `<span class="meta-pill">${escapeHtml(formatDate(source.createdAt))}</span>` : ""}
+                </div>
+                <strong>${escapeHtml(source.title || source.summary || readTextPreview(source.text || "", 120) || "Untitled source")}</strong>
+                <p>${escapeHtml(source.summary || readTextPreview(source.text || source.body || "", 220) || "")}</p>
+                <div class="link-list">
+                  <a class="source-link" href="./post.html?item=${encodeURIComponent(source.id)}">Open thread</a>
+                  ${source.sourceUrl ? `<a class="source-link" href="${escapeHtml(source.sourceUrl)}" target="_blank" rel="noreferrer">Open source</a>` : ""}
+                </div>
+              </article>
+            `
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
 function renderCitation(citation) {
   const label = citation.label || citation.url || "Untitled source";
   const summary = citation.summary ? `<span>${escapeHtml(citation.summary)}</span>` : "";
@@ -1829,6 +1874,78 @@ function renderStateCard(title, body) {
       <span class="panel-kicker">Status</span>
       <h3 class="ticket-title">${escapeHtml(title)}</h3>
       <p>${escapeHtml(body)}</p>
+    </article>
+  `;
+}
+
+function renderWikiLoading() {
+  if (refs.wikiTopThreads) {
+    refs.wikiTopThreads.innerHTML = renderStateCard("Loading evidence", "Reading the busiest complaint and crawler sources.");
+  }
+  if (refs.wikiSourceRollup) {
+    refs.wikiSourceRollup.innerHTML = renderStateCard("Loading domains", "Counting which external sources keep showing up.");
+  }
+}
+
+function renderWikiUnavailable(message) {
+  if (refs.wikiTopThreads) {
+    refs.wikiTopThreads.innerHTML = renderStateCard("Knowledge graph unavailable", message);
+  }
+  if (refs.wikiSourceRollup) {
+    refs.wikiSourceRollup.innerHTML = renderStateCard("Source rollup unavailable", message);
+  }
+}
+
+function renderWiki(payload) {
+  const topThreads = Array.isArray(payload?.topThreads) ? payload.topThreads : [];
+  const sources = Array.isArray(payload?.sources) ? payload.sources : [];
+
+  if (refs.wikiTopThreads) {
+    refs.wikiTopThreads.innerHTML = topThreads.length
+      ? topThreads.map((item) => renderComplaintCard(item, { includeReactions: false })).join("")
+      : renderStateCard("No graph sources yet", "Once live posts and crawl items are ingested, the evidence trail will appear here.");
+  }
+
+  if (refs.wikiSourceRollup) {
+    refs.wikiSourceRollup.innerHTML = sources.length
+      ? sources.map(renderWikiSourceRollupCard).join("")
+      : renderStateCard("No source domains yet", "Crawler domains will show up here once the graph has evidence to index.");
+  }
+}
+
+function renderWikiSourceRollupCard(item) {
+  const meta = [
+    `${formatNumber(item.count || 0)} source${Number(item.count || 0) === 1 ? "" : "s"}`,
+    item.latestSeenAt ? `latest ${formatDate(item.latestSeenAt)}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const link = item.latestUrl
+    ? `<a class="source-link" href="${escapeHtml(item.latestUrl)}" target="_blank" rel="noreferrer">Open latest source</a>`
+    : "";
+  const chips = [
+    ...((Array.isArray(item.sourceTypes) ? item.sourceTypes : []).slice(0, 3)),
+    ...((Array.isArray(item.tags) ? item.tags : []).slice(0, 3)),
+  ]
+    .filter(Boolean)
+    .map((value) => `<span class="list-chip">${escapeHtml(value)}</span>`)
+    .join("");
+
+  return `
+    <article class="ticket-card">
+      <div class="ticket-topline">
+        <span class="panel-kicker">Source Domain</span>
+        ${item.domain ? `<span class="meta-pill">${escapeHtml(item.domain)}</span>` : ""}
+      </div>
+      <h3 class="ticket-title">${escapeHtml(item.label || "Unknown source")}</h3>
+      <p>${escapeHtml(item.latestTitle || "No recent title recorded.")}</p>
+      <div class="ticket-card-footer">
+        <div class="ticket-meta">
+          <span class="meta-pill">${escapeHtml(meta || "Tracked source")}</span>
+        </div>
+        ${chips ? `<div class="chip-list">${chips}</div>` : ""}
+        <div class="link-list">${link}</div>
+      </div>
     </article>
   `;
 }
