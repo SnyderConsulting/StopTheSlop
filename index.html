@@ -17,7 +17,7 @@
   <link rel="stylesheet" href="./styles.css?v=20260410c" />
 </head>
 <body data-page="home">
-  <div class="page-shell page-shell-board">
+  <div class="page-shell">
     <div class="bg-grid"></div>
 
     <header class="topbar">
@@ -29,17 +29,40 @@
         <a href="./wiki.html">Wiki</a>
         <a href="./mcp.html">MCP</a>
         <a href="./feedback.html">Feedback</a>
+        <a href="https://discord.gg/6fYrFKpr" target="_blank" rel="noreferrer">Discord</a>
+        <a href="https://www.reddit.com/r/Stop_The_Slop/" target="_blank" rel="noreferrer">Reddit</a>
       </nav>
+      <div class="topbar-actions">
+        <a class="button ghost" href="./wiki.html">Open Wiki</a>
+      </div>
     </header>
 
-    <header class="board-header">
-      <p class="board-tagline">A place to vent about AI.</p>
-      <p class="board-subtag">Community complaints mixed with fresh AI slop sightings from around the web.</p>
-    </header>
+    <main class="page-stack">
+      <header class="board-header">
+        <p class="board-tagline">A place to vent about AI.</p>
+        <p class="board-subtag">Community complaints mixed with fresh AI slop sightings from around the web.</p>
+      </header>
 
-    <main class="board-stream-shell">
-      <div class="complaint-stream" id="home-feed" aria-live="polite"></div>
+      <section class="board-stream-shell">
+        <div class="complaint-stream" id="home-feed" aria-live="polite"></div>
+      </section>
     </main>
+
+    <footer class="footer">
+      <img class="footer-logo" src="./src/StopTheSlopLogo.png" alt="Stop The Slop emblem" />
+      <div>
+        <strong>Stop The Slop</strong>
+        <p>Public complaints mixed with live web sightings about AI slop, failures, and drift.</p>
+      </div>
+      <div class="footer-links">
+        <a href="./index.html">Home</a>
+        <a href="./wiki.html">Wiki</a>
+        <a href="./mcp.html">MCP</a>
+        <a href="./feedback.html">Feedback</a>
+        <a href="https://discord.gg/6fYrFKpr" target="_blank" rel="noreferrer">Discord</a>
+        <a href="https://www.reddit.com/r/Stop_The_Slop/" target="_blank" rel="noreferrer">Reddit</a>
+      </div>
+    </footer>
   </div>
 
   <button class="post-launcher" id="post-open" type="button">Post</button>
