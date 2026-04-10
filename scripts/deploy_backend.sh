@@ -25,7 +25,6 @@ ENABLE_SEED_DATA="${ENABLE_SEED_DATA:-false}"
 STATIC_ORIGIN="${STATIC_ORIGIN:-https://stoptheslopweb26032543.z19.web.core.windows.net}"
 ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-${STATIC_ORIGIN},https://stoptheslop.tech,https://www.stoptheslop.tech,http://127.0.0.1:8080,http://localhost:8080}"
 OPENAI_ACCOUNT="${OPENAI_ACCOUNT:-stoptheslopopenai260325}"
-SEARCH_SERVICE="${SEARCH_SERVICE:-stoptheslopsearch260325}"
 OPENAI_CHAT_DEPLOYMENT="${OPENAI_CHAT_DEPLOYMENT:-gpt-4o-mini}"
 OPENAI_EMBEDDING_DEPLOYMENT="${OPENAI_EMBEDDING_DEPLOYMENT:-text-embedding-3-small}"
 OPENAI_API_VERSION="${OPENAI_API_VERSION:-2024-10-21}"
@@ -88,13 +87,9 @@ ensure_blob_container() {
 deploy_container_app() {
   local openai_endpoint=""
   local openai_key=""
-  local search_endpoint=""
-  local search_key=""
 
   openai_endpoint="$(az cognitiveservices account show --name "${OPENAI_ACCOUNT}" --resource-group "${RESOURCE_GROUP}" --query 'properties.endpoint' --output tsv 2>/dev/null || true)"
   openai_key="$(az cognitiveservices account keys list --name "${OPENAI_ACCOUNT}" --resource-group "${RESOURCE_GROUP}" --query 'key1' --output tsv 2>/dev/null || true)"
-  search_endpoint="$(az search service show --name "${SEARCH_SERVICE}" --resource-group "${RESOURCE_GROUP}" --query 'endpoint' --output tsv 2>/dev/null || true)"
-  search_key="$(az search admin-key show --service-name "${SEARCH_SERVICE}" --resource-group "${RESOURCE_GROUP}" --query 'primaryKey' --output tsv 2>/dev/null || true)"
 
   az containerapp up \
     --name "${APP_NAME}" \
@@ -105,7 +100,7 @@ deploy_container_app() {
     --ingress external \
     --target-port 8000 \
     --system-assigned \
-    --env-vars STORAGE_ACCOUNT_NAME="${STORAGE_ACCOUNT}" TABLE_NAME="${TABLE_NAME}" SOURCE_BLOB_CONTAINER="${SOURCE_BLOB_CONTAINER}" ENABLE_SEED_DATA="${ENABLE_SEED_DATA}" ALLOWED_ORIGINS="${ALLOWED_ORIGINS}" AZURE_OPENAI_ENDPOINT="${openai_endpoint}" AZURE_OPENAI_API_KEY="${openai_key}" AZURE_OPENAI_CHAT_DEPLOYMENT="${OPENAI_CHAT_DEPLOYMENT}" AZURE_OPENAI_EMBEDDING_DEPLOYMENT="${OPENAI_EMBEDDING_DEPLOYMENT}" AZURE_OPENAI_API_VERSION="${OPENAI_API_VERSION}" AZURE_SEARCH_ENDPOINT="${search_endpoint}" AZURE_SEARCH_API_KEY="${search_key}" GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID}" AUTH_SESSION_SECRET="${AUTH_SESSION_SECRET}" PERPLEXITY_API_KEY="${PERPLEXITY_API_KEY}"
+    --env-vars STORAGE_ACCOUNT_NAME="${STORAGE_ACCOUNT}" TABLE_NAME="${TABLE_NAME}" SOURCE_BLOB_CONTAINER="${SOURCE_BLOB_CONTAINER}" ENABLE_SEED_DATA="${ENABLE_SEED_DATA}" ALLOWED_ORIGINS="${ALLOWED_ORIGINS}" AZURE_OPENAI_ENDPOINT="${openai_endpoint}" AZURE_OPENAI_API_KEY="${openai_key}" AZURE_OPENAI_CHAT_DEPLOYMENT="${OPENAI_CHAT_DEPLOYMENT}" AZURE_OPENAI_EMBEDDING_DEPLOYMENT="${OPENAI_EMBEDDING_DEPLOYMENT}" AZURE_OPENAI_API_VERSION="${OPENAI_API_VERSION}" GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID}" AUTH_SESSION_SECRET="${AUTH_SESSION_SECRET}" PERPLEXITY_API_KEY="${PERPLEXITY_API_KEY}"
 }
 
 echo "Deploying backend container app ${APP_NAME}..."
