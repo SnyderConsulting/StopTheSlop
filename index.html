@@ -20,10 +20,22 @@
   <div class="page-shell page-shell-board">
     <div class="bg-grid"></div>
 
-    <header class="board-header">
+    <header class="topbar">
       <a class="brand" href="./index.html" aria-label="Stop The Slop home">
         <img class="brand-logo" src="./src/StopTheSlopLogoHorizontal.png" alt="Stop The Slop" />
       </a>
+      <nav class="topnav" aria-label="Primary">
+        <a class="is-active" href="./index.html">Home</a>
+        <a href="./wiki.html">Wiki</a>
+        <a href="./mcp.html">MCP</a>
+        <a href="./feedback.html">Feedback</a>
+      </nav>
+      <div class="topbar-actions">
+        <div class="auth-slot" id="auth-slot"></div>
+      </div>
+    </header>
+
+    <header class="board-header">
       <p class="board-tagline">A place to vent about AI.</p>
       <p class="board-subtag">Community complaints mixed with fresh AI slop sightings from around the web.</p>
     </header>
