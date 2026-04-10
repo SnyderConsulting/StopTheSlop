@@ -14,8 +14,10 @@ from .config import (
     ONBOARDING_PARTITION_KEY,
     POST_PARTITION_KEY,
     QUESTION_PARTITION_KEY,
+    COMMENT_PARTITION_PREFIX,
     REACTION_PARTITION_PREFIX,
     SOURCE_PARTITION_KEY,
+    THREAD_ITEM_PARTITION_KEY,
     USER_PARTITION_KEY,
     WEB_POST_PARTITION_KEY,
 )
@@ -295,6 +297,85 @@ def table_to_reaction_record(entity: dict[str, Any]) -> dict[str, Any]:
         "itemId": entity.get("itemId", ""),
         "itemKind": entity.get("itemKind", ""),
         "emojis": read_json(entity.get("emojisJson", "[]"), []),
+        "createdAt": entity.get("createdAt", now_iso()),
+        "updatedAt": entity.get("updatedAt", now_iso()),
+    }
+
+
+def thread_item_record_to_table(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "PartitionKey": THREAD_ITEM_PARTITION_KEY,
+        "RowKey": item["id"],
+        "kind": item.get("kind", "post"),
+        "title": item.get("title", ""),
+        "text": item.get("text", ""),
+        "summary": item.get("summary", ""),
+        "body": item.get("body", ""),
+        "anonymousHandle": item.get("anonymousHandle", ""),
+        "sourceUrl": item.get("sourceUrl", ""),
+        "sourceDomain": item.get("sourceDomain", ""),
+        "sourceLabel": item.get("sourceLabel", ""),
+        "sourceType": item.get("sourceType", ""),
+        "authorLabel": item.get("authorLabel", ""),
+        "mediaKind": item.get("mediaKind", ""),
+        "mediaCaption": item.get("mediaCaption", ""),
+        "imageUrl": item.get("imageUrl", ""),
+        "tagsJson": json.dumps(item.get("tags", [])),
+        "createdAt": item.get("createdAt", now_iso()),
+        "updatedAt": item.get("updatedAt", now_iso()),
+    }
+
+
+def table_to_thread_item_record(entity: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": entity["RowKey"],
+        "kind": entity.get("kind", "post"),
+        "title": entity.get("title", ""),
+        "text": entity.get("text", ""),
+        "summary": entity.get("summary", ""),
+        "body": entity.get("body", ""),
+        "anonymousHandle": entity.get("anonymousHandle", ""),
+        "sourceUrl": entity.get("sourceUrl", ""),
+        "sourceDomain": entity.get("sourceDomain", ""),
+        "sourceLabel": entity.get("sourceLabel", ""),
+        "sourceType": entity.get("sourceType", ""),
+        "authorLabel": entity.get("authorLabel", ""),
+        "mediaKind": entity.get("mediaKind", ""),
+        "mediaCaption": entity.get("mediaCaption", ""),
+        "imageUrl": entity.get("imageUrl", ""),
+        "tags": read_json(entity.get("tagsJson", "[]"), []),
+        "createdAt": entity.get("createdAt", now_iso()),
+        "updatedAt": entity.get("updatedAt", now_iso()),
+    }
+
+
+def comment_record_to_table(comment: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "PartitionKey": comment.get("partitionKey", COMMENT_PARTITION_PREFIX),
+        "RowKey": comment["id"],
+        "itemId": comment.get("itemId", ""),
+        "itemKind": comment.get("itemKind", ""),
+        "parentCommentId": comment.get("parentCommentId", ""),
+        "submitterId": comment.get("submitterId", ""),
+        "anonymousHandle": comment.get("anonymousHandle", ""),
+        "text": comment.get("text", ""),
+        "summary": comment.get("summary", ""),
+        "createdAt": comment.get("createdAt", now_iso()),
+        "updatedAt": comment.get("updatedAt", now_iso()),
+    }
+
+
+def table_to_comment_record(entity: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "partitionKey": entity.get("PartitionKey", COMMENT_PARTITION_PREFIX),
+        "id": entity["RowKey"],
+        "itemId": entity.get("itemId", ""),
+        "itemKind": entity.get("itemKind", ""),
+        "parentCommentId": entity.get("parentCommentId", ""),
+        "submitterId": entity.get("submitterId", ""),
+        "anonymousHandle": entity.get("anonymousHandle", ""),
+        "text": entity.get("text", ""),
+        "summary": entity.get("summary", ""),
         "createdAt": entity.get("createdAt", now_iso()),
         "updatedAt": entity.get("updatedAt", now_iso()),
     }

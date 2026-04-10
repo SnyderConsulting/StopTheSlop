@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stop The Slop | Thread</title>
+  <meta
+    name="description"
+    content="Open a public thread for an AI complaint or web-sourced post and reply anonymously."
+  />
+  <script src="./analytics-config.js"></script>
+  <script src="./analytics-bootstrap.js?v=20260327a"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="./src/StopTheSlopLogo.png" />
+  <link rel="stylesheet" href="./styles.css?v=20260410b" />
+</head>
+<body data-page="post">
+  <div class="page-shell">
+    <div class="bg-grid"></div>
+
+    <header class="topbar">
+      <a class="brand" href="./index.html" aria-label="Stop The Slop home">
+        <img class="brand-logo" src="./src/StopTheSlopLogoHorizontal.png" alt="Stop The Slop" />
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="./index.html">Home</a>
+        <a href="./wiki.html">Wiki</a>
+        <a href="./mcp.html">MCP</a>
+        <a href="./feedback.html">Feedback</a>
+      </nav>
+      <div class="topbar-actions">
+        <div class="auth-slot" id="auth-slot"></div>
+        <a class="button ghost" href="./index.html">Back Home</a>
+      </div>
+    </header>
+
+    <main class="page-stack">
+      <section class="page-hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Thread</p>
+          <h1 class="page-title" id="post-thread-title">Loading thread</h1>
+          <p class="hero-copy-text" id="post-thread-meta">Pulling the post and its replies.</p>
+        </div>
+
+        <div class="hero-card">
+          <p class="community-note">Reply publicly and anonymously. Threads are text-only and visible to anyone with the link.</p>
+        </div>
+      </section>
+
+      <section class="board-section conversation-layout post-thread-layout">
+        <div class="conversation-column post-thread-main">
+          <div id="post-thread-item"></div>
+
+          <form class="composer-form post-thread-form" id="post-comment-form">
+            <div class="post-replying" id="post-replying" hidden>
+              <div>
+                <span class="panel-kicker">Replying</span>
+                <p id="post-replying-label"></p>
+              </div>
+              <button class="button ghost" id="post-cancel-reply" type="button">Cancel</button>
+            </div>
+
+            <label class="signal-textarea">
+              <span>Add to the thread</span>
+              <textarea
+                id="post-comment-text"
+                name="text"
+                rows="5"
+                maxlength="4000"
+                placeholder="Share your own experience, add context, or reply to someone in the thread."
+              ></textarea>
+            </label>
+
+            <div class="form-footer">
+              <div class="auth-note" id="post-comment-auth-note"></div>
+              <div class="form-actions">
+                <button class="button primary" type="submit">Post Reply</button>
+              </div>
+            </div>
+          </form>
+
+          <div id="post-comments" aria-live="polite"></div>
+        </div>
+
+        <aside class="ticket-inspector post-thread-sidebar" id="post-thread-sidebar">
+          <div class="empty-state">
+            <h3>No thread loaded</h3>
+            <p>Open a complaint from the home feed to see its discussion.</p>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <img class="footer-logo" src="./src/StopTheSlopLogo.png" alt="Stop The Slop emblem" />
+      <div>
+        <strong>Stop The Slop</strong>
+        <p>Public complaints. Public threads.</p>
+      </div>
+      <div class="footer-links">
+        <a href="./index.html">Home</a>
+        <a href="./wiki.html">Wiki</a>
+        <a href="./mcp.html">MCP</a>
+        <a href="./feedback.html">Feedback</a>
+      </div>
+    </footer>
+  </div>
+
+  <script src="./api-config.js"></script>
+  <script src="./app.js?v=20260410b" defer></script>
+</body>
+</html>

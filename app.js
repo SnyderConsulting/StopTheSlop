@@ -63,6 +63,17 @@ const refs = {
   postOpen: document.getElementById("post-open"),
   postSheet: document.getElementById("post-sheet"),
   postClose: document.getElementById("post-close"),
+  postThreadTitle: document.getElementById("post-thread-title"),
+  postThreadMeta: document.getElementById("post-thread-meta"),
+  postThreadItem: document.getElementById("post-thread-item"),
+  postComments: document.getElementById("post-comments"),
+  postCommentForm: document.getElementById("post-comment-form"),
+  postCommentText: document.getElementById("post-comment-text"),
+  postCommentAuthNote: document.getElementById("post-comment-auth-note"),
+  postReplying: document.getElementById("post-replying"),
+  postReplyingLabel: document.getElementById("post-replying-label"),
+  postCancelReply: document.getElementById("post-cancel-reply"),
+  postThreadSidebar: document.getElementById("post-thread-sidebar"),
 };
 
 const state = {
@@ -75,13 +86,16 @@ const state = {
   mcpInfo: null,
   homeSubmitting: false,
   conversationSubmitting: false,
+  postCommentSubmitting: false,
   conversation: null,
+  postThread: null,
   emojiPickerCatalog: null,
   emojiPickerLoading: false,
   emojiPickerError: "",
   reactionPickerItemId: "",
   reactionPickerCategory: "",
   reactionPickerQuery: "",
+  postReplyParentId: "",
   entitySearchTimer: 0,
   entities: [],
   selectedEntityId: "",
@@ -114,6 +128,12 @@ async function bootApp() {
   if (PAGE === "home") {
     wireHomePage();
     renderHome();
+    return;
+  }
+
+  if (PAGE === "post") {
+    wirePostPage();
+    await loadPostPage();
     return;
   }
 
@@ -152,6 +172,12 @@ function wireHomePage() {
   });
   document.addEventListener("click", handleHomePageDocumentClick);
   document.addEventListener("keydown", handleHomePageKeydown);
+}
+
+function wirePostPage() {
+  refs.postCommentForm?.addEventListener("submit", handlePostCommentSubmit);
+  refs.postCancelReply?.addEventListener("click", clearPostReplyTarget);
+  refs.postComments?.addEventListener("click", handlePostCommentsClick);
 }
 
 function wireConversationPage() {
@@ -199,6 +225,166 @@ function renderHome() {
   renderComplaintStream(Array.isArray(state.feed?.items) ? state.feed.items : []);
 }
 
+function renderPostThreadLoading() {
+  if (refs.postThreadTitle) {
+    refs.postThreadTitle.textContent = "Loading thread";
+  }
+  if (refs.postThreadMeta) {
+    refs.postThreadMeta.textContent = "Pulling the post and its replies.";
+  }
+  if (refs.postThreadItem) {
+    refs.postThreadItem.innerHTML = renderStateCard("Loading post", "Reading the selected post and its discussion.");
+  }
+  if (refs.postComments) {
+    refs.postComments.innerHTML = renderStateCard("Loading comments", "Fetching the thread.");
+  }
+  if (refs.postThreadSidebar) {
+    refs.postThreadSidebar.innerHTML = renderSidebarStack([
+      renderSidebarBlock("Thread", "<p>Thread metadata is loading.</p>"),
+    ]);
+  }
+  renderPostReplyState();
+}
+
+function renderPostThreadUnavailable(message) {
+  if (refs.postThreadTitle) {
+    refs.postThreadTitle.textContent = "Thread unavailable";
+  }
+  if (refs.postThreadMeta) {
+    refs.postThreadMeta.textContent = message;
+  }
+  if (refs.postThreadItem) {
+    refs.postThreadItem.innerHTML = renderStateCard("Thread unavailable", message);
+  }
+  if (refs.postComments) {
+    refs.postComments.innerHTML = renderStateCard("No thread loaded", "Choose a post from the home feed to see the discussion.");
+  }
+  if (refs.postThreadSidebar) {
+    refs.postThreadSidebar.innerHTML = renderSidebarStack([
+      renderSidebarBlock("Status", `<p>${escapeHtml(message)}</p>`),
+    ]);
+  }
+  renderPostReplyState();
+}
+
+function renderPostThread(payload) {
+  const item = payload?.item || null;
+  const thread = payload?.thread || item?.thread || { commentCount: 0, latestCommentAt: "" };
+  const comments = Array.isArray(payload?.comments) ? payload.comments : [];
+  const title = item?.title || item?.summary || item?.text || "Discussion";
+  const meta = [
+    formatKind(item?.kind || "post"),
+    item?.createdAt ? formatDate(item.createdAt) : "",
+    `${formatNumber(thread.commentCount || 0)} ${(thread.commentCount || 0) === 1 ? "comment" : "comments"}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  if (refs.postThreadTitle) {
+    refs.postThreadTitle.textContent = readTextPreview(title, 120);
+  }
+  if (refs.postThreadMeta) {
+    refs.postThreadMeta.textContent = meta || "Public thread";
+  }
+  if (refs.postThreadItem) {
+    refs.postThreadItem.innerHTML = item ? renderComplaintCard(item, { includeReactions: false, includeThreadLink: false }) : "";
+  }
+  if (refs.postComments) {
+    refs.postComments.innerHTML = comments.length
+      ? `<div class="comment-tree">${comments.map(renderThreadComment).join("")}</div>`
+      : renderStateCard("No comments yet", "Be the first person to reply to this post.");
+  }
+  if (refs.postThreadSidebar) {
+    refs.postThreadSidebar.innerHTML = renderSidebarStack([
+      renderSidebarBlock(
+        "Thread",
+        `
+          <p>${escapeHtml(formatKind(item?.kind || "post"))}</p>
+          <div class="ticket-meta">
+            <span class="meta-pill">${formatNumber(thread.commentCount || 0)} comments</span>
+            ${thread.latestCommentAt ? `<span class="meta-pill">Latest ${escapeHtml(formatDate(thread.latestCommentAt))}</span>` : ""}
+          </div>
+        `
+      ),
+      renderSidebarBlock(
+        "How It Works",
+        "<p>Reply anonymously, respond to a specific comment, and build a public thread around the post.</p>"
+      ),
+    ]);
+  }
+  renderPostReplyState();
+}
+
+function renderThreadComment(comment) {
+  const createdAt = comment.createdAt ? formatDate(comment.createdAt) : "";
+  const replyCount = Number(comment.replyCount || 0);
+  const replyLabel = replyCount ? `${formatNumber(replyCount)} ${replyCount === 1 ? "reply" : "replies"}` : "";
+
+  return `
+    <article class="thread-comment" style="--comment-depth:${Math.min(Number(comment.depth || 0), 6)}">
+      <div class="thread-comment-card">
+        <div class="thread-comment-meta">
+          <span>${escapeHtml(comment.anonymousHandle || "anon-user")}</span>
+          ${createdAt ? `<span>${escapeHtml(createdAt)}</span>` : ""}
+        </div>
+        <div class="thread-comment-body">${renderRichText(comment.text || comment.summary || "")}</div>
+        <div class="thread-comment-actions">
+          <button
+            class="thread-comment-reply"
+            type="button"
+            data-reply-comment="${escapeHtml(comment.id)}"
+            data-reply-handle="${escapeHtml(comment.anonymousHandle || "anon-user")}"
+            data-reply-preview="${escapeHtml(readTextPreview(comment.text || comment.summary || "", 120))}"
+          >
+            Reply
+          </button>
+          ${replyLabel ? `<span class="thread-comment-count">${escapeHtml(replyLabel)}</span>` : ""}
+        </div>
+      </div>
+      ${Array.isArray(comment.children) && comment.children.length ? `<div class="thread-comment-children">${comment.children.map(renderThreadComment).join("")}</div>` : ""}
+    </article>
+  `;
+}
+
+function renderPostReplyState() {
+  const hasReplyTarget = Boolean(state.postReplyParentId);
+  if (refs.postReplying) {
+    refs.postReplying.hidden = !hasReplyTarget;
+  }
+  if (refs.postReplyingLabel) {
+    refs.postReplyingLabel.textContent = hasReplyTarget
+      ? refs.postReplyingLabel.dataset.replyText || ""
+      : "";
+  }
+}
+
+function setPostReplyTarget(commentId, handle, preview) {
+  state.postReplyParentId = commentId;
+  if (refs.postReplyingLabel) {
+    refs.postReplyingLabel.dataset.replyText = `Replying to ${handle || "anon-user"}: ${readTextPreview(preview || "", 120)}`;
+  }
+  renderPostReplyState();
+  refs.postCommentText?.focus();
+}
+
+function clearPostReplyTarget() {
+  state.postReplyParentId = "";
+  if (refs.postReplyingLabel) {
+    refs.postReplyingLabel.dataset.replyText = "";
+    refs.postReplyingLabel.textContent = "";
+  }
+  renderPostReplyState();
+}
+
+async function loadPostPage() {
+  const itemId = readQueryParam("item");
+  if (!itemId) {
+    renderPostThreadUnavailable("No post thread was provided.");
+    return;
+  }
+  await fetchAndRenderPostThread(itemId);
+}
+
 async function loadConversationPage() {
   const conversationId = readQueryParam("conversation");
   const queryToken = readQueryParam("token");
@@ -221,6 +407,17 @@ async function loadWikiPage() {
     refs.entitySearch.value = query;
   }
   await loadEntityList(refs.entitySearch?.value || "");
+}
+
+async function fetchAndRenderPostThread(itemId) {
+  renderPostThreadLoading();
+  try {
+    const payload = await apiFetch(`/api/items/${encodeURIComponent(itemId)}?visitorId=${encodeURIComponent(state.visitorId)}`);
+    state.postThread = payload;
+    renderPostThread(payload);
+  } catch (error) {
+    renderPostThreadUnavailable(error.message || "Post thread unavailable.");
+  }
 }
 
 async function loadMcpPage() {
@@ -426,6 +623,7 @@ function renderAuthNotes() {
   const note = "Anonymous. Public. Text only. Vent freely.";
   renderInlineNotice(refs.composerAuthNote, note, true);
   renderInlineNotice(refs.conversationAuthNote, note, true);
+  renderInlineNotice(refs.postCommentAuthNote, note, true);
 }
 
 function renderSignalStrip(items) {
@@ -489,9 +687,9 @@ function renderComplaintStream(items) {
   refs.homeFeed.innerHTML = items.map(renderComplaintCard).join("");
 }
 
-function renderComplaintCard(item) {
+function renderComplaintCard(item, options = {}) {
   if (item.kind === "web_post" || item.kind === "live_web") {
-    return renderWebFeedCard(item);
+    return renderWebFeedCard(item, options);
   }
 
   const meta = [
@@ -501,17 +699,23 @@ function renderComplaintCard(item) {
   ]
     .filter(Boolean)
     .join(" · ");
+  const includeReactions = options.includeReactions !== false;
+  const cardTarget = options.includeThreadLink !== false && item.id
+    ? ` data-open-thread-card="${escapeHtml(item.id)}"`
+    : "";
+  const threadableClass = options.includeThreadLink !== false ? " complaint-card--threadable" : "";
 
   return `
-    <article class="complaint-card complaint-card--post">
+    <article class="complaint-card complaint-card--post${threadableClass}"${cardTarget}>
       <div class="complaint-meta">${escapeHtml(meta)}</div>
       <div class="complaint-body">${renderRichText(item.text || item.summary || "")}</div>
-      ${renderReactionBar(item)}
+      ${renderThreadBar(item, options)}
+      ${includeReactions ? renderReactionBar(item) : ""}
     </article>
   `;
 }
 
-function renderWebFeedCard(item) {
+function renderWebFeedCard(item, options = {}) {
   const kindLabel = item.kind === "live_web" ? "Live Web" : "Crawler Post";
   const sourceBits = [
     kindLabel,
@@ -538,9 +742,14 @@ function renderWebFeedCard(item) {
   const sourceLink = item.sourceUrl
     ? `<a class="complaint-source-link" href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noreferrer">Open source</a>`
     : "";
+  const includeReactions = options.includeReactions !== false;
+  const cardTarget = options.includeThreadLink !== false && item.id
+    ? ` data-open-thread-card="${escapeHtml(item.id)}"`
+    : "";
+  const threadableClass = options.includeThreadLink !== false ? " complaint-card--threadable" : "";
 
   return `
-    <article class="complaint-card complaint-card--web complaint-card--${escapeHtml(item.kind)}">
+    <article class="complaint-card complaint-card--web complaint-card--${escapeHtml(item.kind)}${threadableClass}"${cardTarget}>
       ${image}
       <div class="complaint-meta">${escapeHtml(sourceBits)}</div>
       <div class="complaint-head">
@@ -561,8 +770,33 @@ function renderWebFeedCard(item) {
         </div>
       `
         : ""}
-      ${renderReactionBar(item)}
+      ${renderThreadBar(item, options)}
+      ${includeReactions ? renderReactionBar(item) : ""}
     </article>
+  `;
+}
+
+function renderThreadBar(item, options = {}) {
+  const includeThreadLink = options.includeThreadLink !== false;
+  const thread = item.thread || {};
+  const commentCount = Number(thread.commentCount || 0);
+  const latestCommentAt = thread.latestCommentAt ? formatDate(thread.latestCommentAt) : "";
+  const meta = [
+    commentCount ? `${formatNumber(commentCount)} ${commentCount === 1 ? "comment" : "comments"}` : "No comments yet",
+    latestCommentAt ? `latest ${latestCommentAt}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const itemId = String(item.id || "").trim();
+  const threadLink = includeThreadLink && itemId
+    ? `<a class="thread-link" href="./post.html?item=${encodeURIComponent(itemId)}">${commentCount ? "Open thread" : "Start thread"}</a>`
+    : "";
+
+  return `
+    <div class="thread-strip">
+      <span class="thread-meta">${escapeHtml(meta)}</span>
+      ${threadLink}
+    </div>
   `;
 }
 
@@ -971,7 +1205,15 @@ async function handleHomeFeedClick(event) {
   if (event.target.closest("[data-close-reaction]")) {
     closeReactionPicker();
     renderHome();
+    return;
   }
+
+  const threadCard = event.target.closest("[data-open-thread-card]");
+  if (!threadCard) return;
+  if (event.target.closest("a, button, input, textarea, select, label")) return;
+  const itemId = threadCard.getAttribute("data-open-thread-card") || "";
+  if (!itemId) return;
+  window.location.href = `./post.html?item=${encodeURIComponent(itemId)}`;
 }
 
 function handleHomeFeedInput(event) {
@@ -980,6 +1222,58 @@ function handleHomeFeedInput(event) {
   state.reactionPickerQuery = searchInput.value || "";
   renderHome();
   focusReactionPickerSearch(state.reactionPickerItemId);
+}
+
+function handlePostCommentsClick(event) {
+  const replyButton = event.target.closest("[data-reply-comment]");
+  if (!replyButton) return;
+  setPostReplyTarget(
+    replyButton.dataset.replyComment || "",
+    replyButton.dataset.replyHandle || "anon-user",
+    replyButton.dataset.replyPreview || ""
+  );
+}
+
+async function handlePostCommentSubmit(event) {
+  event.preventDefault();
+  if (!refs.postCommentForm || state.postCommentSubmitting) return;
+
+  const itemId = readQueryParam("item");
+  if (!itemId) {
+    renderInlineNotice(refs.postCommentAuthNote, "The thread id is missing.");
+    return;
+  }
+
+  if (!hasComposerContent(refs.postCommentForm, refs.postCommentText)) {
+    renderInlineNotice(refs.postCommentAuthNote, "Write a reply before posting.");
+    return;
+  }
+
+  state.postCommentSubmitting = true;
+  setButtonBusy(refs.postCommentForm.querySelector("button[type='submit']"), true, "Posting...");
+  renderInlineNotice(refs.postCommentAuthNote, state.postReplyParentId ? "Posting your reply." : "Posting your comment.");
+
+  try {
+    await apiFetch(`/api/items/${encodeURIComponent(itemId)}/comments`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text: refs.postCommentText?.value || "",
+        parentCommentId: state.postReplyParentId,
+      }),
+    });
+    refs.postCommentForm.reset();
+    clearInlineNotice(refs.postCommentAuthNote);
+    clearPostReplyTarget();
+    await fetchAndRenderPostThread(itemId);
+  } catch (error) {
+    renderInlineNotice(refs.postCommentAuthNote, error.message || "The reply could not be posted.");
+  } finally {
+    state.postCommentSubmitting = false;
+    setButtonBusy(refs.postCommentForm.querySelector("button[type='submit']"), false, "Post Reply");
+  }
 }
 
 async function submitReaction(itemId, emoji, strip, trigger) {
@@ -1950,6 +2244,12 @@ function formatDate(value) {
 
 function formatNumber(value) {
   return new Intl.NumberFormat().format(Number(value || 0));
+}
+
+function readTextPreview(value, limit = 140) {
+  const text = String(value || "").trim().replace(/\s+/g, " ");
+  if (text.length <= limit) return text;
+  return `${text.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
 }
 
 function renderRichText(value) {

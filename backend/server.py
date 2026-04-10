@@ -69,6 +69,7 @@ from sts_backend.config import (
     ENTITY_PARTITION_KEY,
     ENTITY_TYPE_OPTIONS,
     GUIDE_PARTITION_KEY,
+    COMMENT_PARTITION_PREFIX,
     INTAKE_SCHEMA,
     LEGACY_TICKET_PARTITION_KEY,
     LIVE_WEB_CACHE_TTL_SECONDS,
@@ -92,6 +93,7 @@ from sts_backend.config import (
     SOURCE_BLOB_CONTAINER,
     STANCE_OPTIONS,
     TABLE_NAME,
+    THREAD_ITEM_PARTITION_KEY,
     TOOL_FAMILY_METADATA,
     USER_PARTITION_KEY,
     WEB_IMPORT_USER_AGENT,
@@ -112,9 +114,11 @@ from sts_backend.records import (
     onboarding_record_to_table,
     post_record_to_table,
     question_record_to_table,
+    comment_record_to_table,
     reaction_record_to_table,
     source_record_to_table,
     table_to_claim_record,
+    table_to_comment_record,
     table_to_conversation_record,
     table_to_entity_record,
     table_to_guide_record,
@@ -123,8 +127,10 @@ from sts_backend.records import (
     table_to_question_record,
     table_to_reaction_record,
     table_to_source_record,
+    table_to_thread_item_record,
     table_to_user_record,
     table_to_web_post_record,
+    thread_item_record_to_table,
     user_record_to_table,
     web_post_record_to_table,
 )
@@ -1412,6 +1418,45 @@ def list_web_posts(limit: int | None = None) -> list[dict[str, Any]]:
     return items[:limit] if limit else items
 
 
+def build_public_post_item(post: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": post["id"],
+        "kind": "post",
+        "text": post.get("text", ""),
+        "summary": post.get("summary", ""),
+        "anonymousHandle": post.get("anonymousHandle", ""),
+        "createdAt": post.get("createdAt", ""),
+        "updatedAt": post.get("updatedAt", ""),
+    }
+
+
+def build_public_web_item(item: dict[str, Any], kind: str = "web_post") -> dict[str, Any]:
+    return {
+        "id": item["id"],
+        "kind": kind,
+        "title": item.get("title", ""),
+        "summary": item.get("summary", ""),
+        "body": item.get("body", ""),
+        "angle": item.get("angle", ""),
+        "sourceUrl": item.get("sourceUrl", ""),
+        "sourceDomain": item.get("sourceDomain", ""),
+        "sourceLabel": item.get("sourceLabel", ""),
+        "sourceType": item.get("sourceType", "article"),
+        "authorLabel": item.get("authorLabel", ""),
+        "mediaKind": item.get("mediaKind", ""),
+        "mediaCaption": item.get("mediaCaption", ""),
+        "imageUrl": item.get("imageUrl", ""),
+        "createdAt": item.get("createdAt", ""),
+        "updatedAt": item.get("updatedAt", ""),
+        "tags": item.get("tags", []),
+    }
+
+
+def build_comment_partition_key(item_id: str) -> str:
+    digest = hashlib.sha1(read_text(item_id, 240).encode("utf-8")).hexdigest()[:24]
+    return f"{COMMENT_PARTITION_PREFIX}-{digest}"
+
+
 def build_reaction_partition_key(item_id: str) -> str:
     digest = hashlib.sha1(read_text(item_id, 240).encode("utf-8")).hexdigest()[:24]
     return f"{REACTION_PARTITION_PREFIX}-{digest}"
@@ -1453,17 +1498,43 @@ def normalize_reaction_emoji(value: Any) -> str:
 
 
 def find_reactable_item(item_id: str) -> dict[str, Any] | None:
+    item = find_threadable_item(item_id)
+    if item:
+        return {"id": item["id"], "kind": item["kind"]}
+    return None
+
+
+def get_thread_item_snapshot(item_id: str) -> dict[str, Any] | None:
+    row = get_row(THREAD_ITEM_PARTITION_KEY, item_id)
+    return table_to_thread_item_record(row) if row else None
+
+
+def persist_thread_item_snapshot(item: dict[str, Any]) -> dict[str, Any]:
+    snapshot = build_public_web_item(item, item.get("kind", "live_web"))
+    upsert_row(thread_item_record_to_table(snapshot))
+    return snapshot
+
+
+def find_threadable_item(item_id: str, viewer_id: str = "") -> dict[str, Any] | None:
     post = get_row(POST_PARTITION_KEY, item_id)
     if post:
-        return {"id": item_id, "kind": "post"}
+        item = build_public_post_item(table_to_post_record(post))
+        return attach_thread_summaries(attach_reaction_summaries([item], viewer_id), viewer_id)[0]
 
     web_post = get_row(WEB_POST_PARTITION_KEY, item_id)
     if web_post:
-        return {"id": item_id, "kind": "web_post"}
+        item = build_public_web_item(table_to_web_post_record(web_post), "web_post")
+        return attach_thread_summaries(attach_reaction_summaries([item], viewer_id), viewer_id)[0]
 
     for item in build_live_web_feed_items():
         if item.get("id") == item_id:
-            return {"id": item_id, "kind": "live_web"}
+            public_item = attach_thread_summaries(attach_reaction_summaries([item], viewer_id), viewer_id)[0]
+            return public_item
+
+    snapshot = get_thread_item_snapshot(item_id)
+    if snapshot:
+        item = build_public_web_item(snapshot, snapshot.get("kind", "live_web"))
+        return attach_thread_summaries(attach_reaction_summaries([item], viewer_id), viewer_id)[0]
     return None
 
 
@@ -1471,6 +1542,34 @@ def list_reaction_records(item_id: str) -> list[dict[str, Any]]:
     partition_key = build_reaction_partition_key(item_id)
     rows = list_rows(partition_key)
     return [table_to_reaction_record(row) for row in rows if read_text(row.get("itemId"), 240) == item_id]
+
+
+def list_comment_records(item_id: str) -> list[dict[str, Any]]:
+    partition_key = build_comment_partition_key(item_id)
+    rows = list_rows(partition_key)
+    items = [table_to_comment_record(row) for row in rows if read_text(row.get("itemId"), 240) == item_id]
+    return sorted(items, key=lambda item: (item.get("createdAt", ""), item.get("id", "")))
+
+
+def build_thread_summary(item_id: str) -> dict[str, Any]:
+    comments = list_comment_records(item_id)
+    return {
+        "commentCount": len(comments),
+        "latestCommentAt": max((item.get("createdAt", "") for item in comments), default=""),
+    }
+
+
+def attach_thread_summaries(items: list[dict[str, Any]], viewer_id: str = "") -> list[dict[str, Any]]:
+    hydrated: list[dict[str, Any]] = []
+    for item in items:
+        item_id = read_text(item.get("id"), 240)
+        enriched = dict(item)
+        enriched["thread"] = build_thread_summary(item_id) if item_id else {
+            "commentCount": 0,
+            "latestCommentAt": "",
+        }
+        hydrated.append(enriched)
+    return hydrated
 
 
 def build_reaction_summary(item_id: str, viewer_id: str = "") -> dict[str, Any]:
@@ -1556,6 +1655,76 @@ def toggle_reaction(item_id: str, item_kind: str, visitor_id: str, emoji: str) -
     record["updatedAt"] = now_iso()
     upsert_row(reaction_record_to_table(record))
     return build_reaction_summary(normalized_item_id, normalized_visitor_id)
+
+
+def create_comment_record(
+    item_id: str,
+    item_kind: str,
+    parent_comment_id: str,
+    text: str,
+    submitter_id: str,
+    anonymous_handle: str,
+) -> dict[str, Any]:
+    body = read_text(text, 4000)
+    if not body:
+        raise ValueError("Write a comment before posting.")
+
+    record = {
+        "partitionKey": build_comment_partition_key(item_id),
+        "id": build_row_key("cmt"),
+        "itemId": item_id,
+        "itemKind": item_kind,
+        "parentCommentId": parent_comment_id,
+        "submitterId": submitter_id,
+        "anonymousHandle": anonymous_handle,
+        "text": body,
+        "summary": read_text(" ".join(body.split()), 220),
+        "createdAt": now_iso(),
+        "updatedAt": now_iso(),
+    }
+    upsert_row(comment_record_to_table(record))
+    return record
+
+
+def build_comment_node(comment: dict[str, Any], depth: int = 0) -> dict[str, Any]:
+    return {
+        "id": comment["id"],
+        "itemId": comment.get("itemId", ""),
+        "itemKind": comment.get("itemKind", ""),
+        "parentCommentId": comment.get("parentCommentId", ""),
+        "anonymousHandle": comment.get("anonymousHandle", ""),
+        "text": comment.get("text", ""),
+        "summary": comment.get("summary", ""),
+        "createdAt": comment.get("createdAt", ""),
+        "updatedAt": comment.get("updatedAt", ""),
+        "depth": depth,
+        "replyCount": 0,
+        "children": [],
+    }
+
+
+def build_comment_tree(item_id: str) -> list[dict[str, Any]]:
+    comments = list_comment_records(item_id)
+    nodes_by_id = {comment["id"]: build_comment_node(comment) for comment in comments}
+    roots: list[dict[str, Any]] = []
+
+    for comment in comments:
+        node = nodes_by_id[comment["id"]]
+        parent_id = read_text(comment.get("parentCommentId"), 120)
+        if parent_id and parent_id in nodes_by_id:
+            parent = nodes_by_id[parent_id]
+            node["depth"] = min(parent.get("depth", 0) + 1, 8)
+            parent["children"].append(node)
+        else:
+            roots.append(node)
+
+    def finalize(node: dict[str, Any]) -> dict[str, Any]:
+        children = [finalize(child) for child in sorted(node.get("children", []), key=lambda item: (item.get("createdAt", ""), item.get("id", "")))]
+        node["children"] = children
+        node["replyCount"] = len(children)
+        return node
+
+    return [finalize(node) for node in roots]
 
 
 def create_post_record(
@@ -2176,40 +2345,8 @@ def derive_cluster_items(claims: list[dict[str, Any]], entities_by_id: dict[str,
 
 
 def build_home_feed_items(viewer_id: str = "") -> list[dict[str, Any]]:
-    community_items = [
-        {
-            "id": post["id"],
-            "kind": "post",
-            "text": post.get("text", ""),
-            "summary": post.get("summary", ""),
-            "anonymousHandle": post.get("anonymousHandle", ""),
-            "createdAt": post.get("createdAt", ""),
-            "updatedAt": post.get("updatedAt", ""),
-        }
-        for post in list_posts()[:18]
-    ]
-    curated_web_items = [
-        {
-            "id": item["id"],
-            "kind": "web_post",
-            "title": item.get("title", ""),
-            "summary": item.get("summary", ""),
-            "body": item.get("body", ""),
-            "angle": item.get("angle", ""),
-            "sourceUrl": item.get("sourceUrl", ""),
-            "sourceDomain": item.get("sourceDomain", ""),
-            "sourceLabel": item.get("sourceLabel", ""),
-            "sourceType": item.get("sourceType", "article"),
-            "authorLabel": item.get("authorLabel", ""),
-            "mediaKind": item.get("mediaKind", ""),
-            "mediaCaption": item.get("mediaCaption", ""),
-            "imageUrl": item.get("imageUrl", ""),
-            "createdAt": item.get("createdAt", ""),
-            "updatedAt": item.get("updatedAt", ""),
-            "tags": item.get("tags", []),
-        }
-        for item in list_web_posts(limit=14)
-    ]
+    community_items = [build_public_post_item(post) for post in list_posts()[:18]]
+    curated_web_items = [build_public_web_item(item, "web_post") for item in list_web_posts(limit=14)]
     live_web_items = build_live_web_feed_items()[:6]
 
     mixed: list[dict[str, Any]] = []
@@ -2225,7 +2362,7 @@ def build_home_feed_items(viewer_id: str = "") -> list[dict[str, Any]]:
                 mixed.append(streams[key].pop(0))
             if len(mixed) >= MAX_FEED_ITEMS:
                 break
-    return attach_reaction_summaries(mixed[:MAX_FEED_ITEMS], viewer_id)
+    return attach_thread_summaries(attach_reaction_summaries(mixed[:MAX_FEED_ITEMS], viewer_id), viewer_id)
 
 
 def build_feed(viewer_id: str = "") -> dict[str, Any]:
@@ -2697,6 +2834,7 @@ def submit_post():
                 "createdAt": post.get("createdAt", ""),
                 "updatedAt": post.get("updatedAt", ""),
                 "reactions": {"items": [], "viewerEmojis": [], "totalCount": 0},
+                "thread": {"commentCount": 0, "latestCommentAt": ""},
             }
         ),
         201,
@@ -2719,6 +2857,59 @@ def sign_in_with_google():
 def get_feed():
     visitor_id = read_text(request.args.get("visitorId"), 120)
     return jsonify(build_feed(visitor_id))
+
+
+@app.get("/api/items/<item_id>")
+def get_item_thread(item_id: str):
+    visitor_id = read_text(request.args.get("visitorId"), 120)
+    item = find_threadable_item(item_id, viewer_id=visitor_id)
+    if not item:
+        return jsonify({"detail": "Feed item not found."}), 404
+    if item.get("kind") == "live_web":
+        persist_thread_item_snapshot(item)
+    comments = build_comment_tree(item_id)
+    return jsonify(
+        {
+            "item": item,
+            "thread": item.get("thread", build_thread_summary(item_id)),
+            "comments": comments,
+        }
+    )
+
+
+@app.post("/api/items/<item_id>/comments")
+def create_item_comment(item_id: str):
+    payload = request.get_json(silent=True) or {}
+    item = find_threadable_item(item_id)
+    if not item:
+        return jsonify({"detail": "Feed item not found."}), 404
+
+    parent_comment_id = read_text(payload.get("parentCommentId"), 120)
+    if parent_comment_id:
+        comment_ids = {comment.get("id", "") for comment in list_comment_records(item_id)}
+        if parent_comment_id not in comment_ids:
+            return jsonify({"detail": "Parent comment not found."}), 400
+
+    submitter_id, anonymous_handle, _user = build_actor_context()
+    if item.get("kind") == "live_web":
+        persist_thread_item_snapshot(item)
+    comment = create_comment_record(
+        item["id"],
+        item.get("kind", "post"),
+        parent_comment_id,
+        read_text(payload.get("text"), 4000),
+        submitter_id,
+        anonymous_handle,
+    )
+    return (
+        jsonify(
+            {
+                "comment": build_comment_node(comment),
+                "thread": build_thread_summary(item_id),
+            }
+        ),
+        201,
+    )
 
 
 @app.post("/api/items/<item_id>/reactions")

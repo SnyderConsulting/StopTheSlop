@@ -264,6 +264,53 @@ a:focus-visible {
   font-weight: 600;
 }
 
+.complaint-card--threadable {
+  cursor: pointer;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.complaint-card--threadable:hover {
+  transform: translateY(-1px);
+  border-color: var(--line-strong);
+  box-shadow: 0 26px 68px rgba(0, 0, 0, 0.48);
+}
+
+.thread-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.thread-meta {
+  color: var(--text-dim);
+  font-size: 0.74rem;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.thread-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 9px 13px;
+  border-radius: 999px;
+  border: 1px solid rgba(118, 223, 131, 0.24);
+  background: rgba(118, 223, 131, 0.08);
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.thread-link:hover {
+  border-color: var(--line-strong);
+  background: rgba(118, 223, 131, 0.12);
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -1851,6 +1898,133 @@ textarea {
   align-items: start;
 }
 
+.post-thread-layout {
+  align-items: start;
+}
+
+.post-thread-main {
+  display: grid;
+  gap: 18px;
+}
+
+.post-thread-form {
+  margin-top: 0;
+  padding: 20px;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(11, 15, 13, 0.95), rgba(8, 11, 10, 0.9)),
+    linear-gradient(135deg, rgba(118, 223, 131, 0.03), rgba(110, 214, 255, 0.02));
+}
+
+.post-thread-form .signal-textarea textarea {
+  min-height: 170px;
+}
+
+.post-thread-sidebar {
+  position: sticky;
+  top: 18px;
+}
+
+.post-replying {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(110, 214, 255, 0.2);
+  background: rgba(110, 214, 255, 0.08);
+}
+
+.post-replying p {
+  margin: 4px 0 0;
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.comment-tree {
+  display: grid;
+  gap: 14px;
+}
+
+.thread-comment {
+  display: grid;
+  gap: 12px;
+  padding-left: calc(var(--comment-depth, 0) * 20px);
+}
+
+.thread-comment-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(12, 16, 14, 0.96), rgba(8, 11, 10, 0.9)),
+    linear-gradient(135deg, rgba(118, 223, 131, 0.022), rgba(110, 214, 255, 0.02));
+  box-shadow: inset 2px 0 0 rgba(118, 223, 131, 0.14);
+}
+
+.thread-comment-meta,
+.thread-comment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.thread-comment-meta {
+  align-items: center;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.thread-comment-body p {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.7;
+}
+
+.thread-comment-body p + p {
+  margin-top: 12px;
+}
+
+.thread-comment-actions {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.thread-comment-reply {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.thread-comment-reply:hover {
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.thread-comment-count {
+  color: var(--text-dim);
+  font-size: 0.74rem;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.thread-comment-children {
+  display: grid;
+  gap: 12px;
+}
+
 .conversation-thread {
   min-height: 320px;
 }
@@ -2099,9 +2273,21 @@ textarea {
     align-items: stretch;
   }
 
+  .thread-strip,
+  .thread-comment-actions,
+  .post-replying {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .reaction-add {
     width: 100%;
     justify-content: center;
+  }
+
+  .thread-link,
+  .thread-comment-reply {
+    width: 100%;
   }
 
   .reaction-picker-topline {
@@ -2150,6 +2336,15 @@ textarea {
 
   .page-shell {
     width: min(100% - 20px, 100%);
+  }
+
+  .thread-comment {
+    padding-left: calc(var(--comment-depth, 0) * 12px);
+  }
+
+  .thread-comment-card,
+  .post-thread-form {
+    padding: 16px;
   }
 
   .home-copy,
