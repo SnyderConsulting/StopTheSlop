@@ -115,17 +115,18 @@ async function bootApp() {
 
   renderAuthSlot();
 
-  const configPromise = fetchConfigSafe();
-  const feedPromise = fetchFeedSafe();
-  state.config = await configPromise;
-  state.session = await fetchSessionSafe();
+  const [config, session] = await Promise.all([
+    fetchConfigSafe(),
+    fetchSessionSafe(),
+  ]);
+  state.config = config;
+  state.session = session;
   renderAuthSlot();
   renderAuthNotes();
 
-  state.feed = await feedPromise;
-  syncMetrics(state.feed?.metrics);
-
   if (PAGE === "home") {
+    state.feed = await fetchFeedSafe();
+    syncMetrics(state.feed?.metrics);
     wireHomePage();
     renderHome();
     return;
